@@ -1,0 +1,50 @@
+[
+  {
+    "Test": "three-nozzle-axis-regression.ps1",
+    "Exit": 0
+  },
+  {
+    "Test": "three-nozzle-checks-regression.ps1",
+    "Exit": 0
+  },
+  {
+    "Test": "three-nozzle-config-regression.ps1",
+    "Exit": 0
+  },
+  {
+    "Test": "three-nozzle-contact-regression.ps1",
+    "Exit": 0
+  },
+  {
+    "Test": "three-nozzle-coordinator-regression.ps1",
+    "Exit": 0
+  },
+  {
+    "Test": "three-nozzle-modes-regression.ps1",
+    "Exit": 0
+  },
+  {
+    "Test": "three-nozzle-pick-recovery-regression.ps1",
+    "Exit": 0
+  },
+  {
+    "Test": "three-nozzle-runtime-regression.ps1",
+    "Exit": 0
+  },
+  {
+    "Test": "three-nozzle-scanning-regression.ps1",
+    "Exit": 0
+  },
+  {
+    "Test": "three-nozzle-sequence-regression.ps1",
+    "Exit": 0
+  },
+  {
+    "Test": "three-nozzle-tray-vision-regression.ps1",
+    "Exit": 0
+  },
+  {
+    "Test": "three-nozzle-z-draft-regression.ps1",
+    "Exit": 0
+  }
+]

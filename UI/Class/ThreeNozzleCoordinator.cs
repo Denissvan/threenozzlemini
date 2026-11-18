@@ -209,7 +209,8 @@ namespace UI
                     arm.ax_x.home_status != AXIS.HOME_STA.OK || arm.ax_y.home_status != AXIS.HOME_STA.OK ||
                     !arm.ax_x.isStop || !arm.ax_y.isStop ||
                     double.IsNaN(arm.ax_x.fenc_pos) || double.IsNaN(arm.ax_x.fcmd_pos) ||
-                    Math.Abs(arm.ax_x.fenc_pos) > 3 || Math.Abs(arm.ax_x.fcmd_pos) > 3)
+                    // 最后一组不回零时 X 留在夹具这一列：只在料盘区阶段靠 Y≤SafeTrayMaxY（下面 IsArmOutsideFixture）保证离开夹具，X 交给双臂 X 预约
+                    (!UpDownLoad.ThreeNozzleTailSkipHomeEnabled && (Math.Abs(arm.ax_x.fenc_pos) > 3 || Math.Abs(arm.ax_x.fcmd_pos) > 3)))
                     return EM_RES.SAFE_PROTECT;
                 TrayOnly[armId] = true;
                 if (!IsArmOutsideFixture(armId)) { TrayOnly[armId] = false; return EM_RES.SAFE_PROTECT; }

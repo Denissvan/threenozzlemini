@@ -873,7 +873,10 @@ namespace UI
                             // 不是最后一组（最后一组的卸料由协调线程做，锁不能跨线程带过去）：离开夹具的同时让成品料盘先走到本臂的落料位。
                             // 落料位要按“落料时臂的 X”算：直接去料盘时臂 X 不变（还在夹具这一列），回等待位时 X≈0
                             if (notLastPair) ThreeNozzlePrepositionPlaceTray(goDirect ? ax_x.fcmd_pos : 0);
-                            result = ThreeNozzleFinishChecksAndLeave(ref quit, goDirect);
+                            // 最后一组：不再回 X=0，只把 Y 退到等待位高度（下相机拍照位），X 留在原地，由尾部卸料直接去料仓。
+                            // 需要协调线程统一做后检查（BeginUnload 要求两臂 X≈0）时照旧回零。
+                            bool tailDirect = !notLastPair && ThreeNozzleTailSkipHomeEnabled && !ThreeNozzleArmNeedsPostChecks(ws);
+                            result = ThreeNozzleFinishChecksAndLeave(ref quit, goDirect, tailDirect);
                             break;
                         }
                         case ThreeNozzleAction.UnloadFinished: result = ThreeNozzleUnloadCore(ref quit); break;
@@ -1031,7 +1034,18 @@ namespace UI
         /// </summary>
         public static bool ThreeNozzleDirectUnloadEnabled = true;
 
-        private EM_RES ThreeNozzleFinishChecksAndLeave(ref bool quit, bool goDirect = false)
+        /// <summary>
+        /// 开关：每个工站最后一组离开夹具时不回 X=0（默认开）。Y 照旧退到等待位高度（下相机拍照位，与原 GoZero 相同），
+        /// X 留在夹具这一列，尾部卸料从这里直接去 OK/NG 料仓，省掉“回安全位再去料仓”的一段横移。
+        /// 协调线程进入只在料盘区阶段（BeginArmUnload）时相应不再要求 X≈0，仍要求 Y 在 SafeTrayMaxY 以内、Z 安全、XY 停止。
+        /// 关掉恢复原来的回零等待位。
+        /// </summary>
+        public static bool ThreeNozzleTailSkipHomeEnabled = true;
+
+        /// <summary>开关：离开夹具时成品料盘还在预定位，先把臂走到第一颗成品的落料位上方（默认开），不在夹具口停着等料盘。</summary>
+        public static bool ThreeNozzleApproachDuringTrayPreMoveEnabled = true;
+
+        private EM_RES ThreeNozzleFinishChecksAndLeave(ref bool quit, bool goDirect = false, bool tailDirect = false)
         {
             foreach (XT xt in list_xt)
             {
@@ -1045,6 +1059,23 @@ namespace UI
                 EM_RES r = MT.RaiseAllArmZ(ref quit, id);
                 if (r != EM_RES.OK) return r;
                 return MT.Move(ref quit, ref ax_u1, 0, ref ax_u2, 0, ref list_xt[2].ax_u, 0);
+            }
+            if (tailDirect)
+            {
+                double waitY = list_xt[1].st_cap_pos.y;
+                double safeY = ThreeNozzleHardwareConfig.SafeTrayMaxY(id);
+                if (FlyFinite(waitY) && FlyFinite(safeY) && waitY <= safeY)
+                {
+                    EM_RES r = MT.RaiseAllArmZ(ref quit, id);
+                    if (r != EM_RES.OK) return r;
+                    double y = Math.Min(ax_y.fcmd_pos, waitY);
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴: 最后一组离开夹具，不回 X=0，X 留在 {1:F3}，Y {2:F3}→{3:F3}，尾部卸料直接去料仓",
+                        disc, ax_x.fcmd_pos, ax_y.fcmd_pos, y));
+                    r = MT.ZupMove(ref quit, ref ax_y, y, ref ax_u1, 0, ref ax_u2, 0);
+                    if (r != EM_RES.OK) return r;
+                    return MT.Move(ref quit, ref list_xt[2].ax_u, 0);
+                }
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("{0} 三吸嘴: 等待位 Y={1:F3} / SafeTrayMaxY={2:F3} 不可用，最后一组照旧回零", disc, waitY, safeY));
             }
             return GoZero(ref quit);
         }
@@ -1396,6 +1427,13 @@ namespace UI
             threeNozzlePreHeldTray = null;
             try
             {
+                // 料盘还在预定位时，臂先走到第一颗成品落料位上方（只动臂 X/Y；料盘锁已在手，空位不会被对臂改动）
+                var preMove = threeNozzleTrayPreMove;
+                if (ThreeNozzleApproachDuringTrayPreMoveEnabled && held != null && preMove != null && !preMove.IsCompleted)
+                {
+                    XT firstOnHeld = pending.FirstOrDefault(xt => Object.ReferenceEquals(ThreeNozzleUnloadLockFor(xt), held));
+                    if (firstOnHeld != null) ThreeNozzleApproachPlaceWhileWaiting(ref quit, firstOnHeld, "正在预定位", true);
+                }
                 ThreeNozzleWaitTrayPreMove();
                 while (pending.Count > 0)
                 {
@@ -1453,9 +1491,9 @@ namespace UI
         /// 料盘数据此时可能正被对臂改动，这里只是估算位置：拿到锁后 ThreeNozzleUnloadOne 照常按实际空位和料盘补偿走到位。
         /// 估算失败或运动失败都不影响后面的正常落料。
         /// </summary>
-        private void ThreeNozzleApproachPlaceWhileWaiting(ref bool quit, XT xt)
+        private void ThreeNozzleApproachPlaceWhileWaiting(ref bool quit, XT xt, string why = "正被对臂使用", bool force = false)
         {
-            if (!ThreeNozzleApproachPlaceWhileWaitingEnabled || quit) return;
+            if ((!ThreeNozzleApproachPlaceWhileWaitingEnabled && !force) || quit) return;
             try
             {
                 if (xt == null || xt.XtMd == null || IsModuleCheckSample(xt.XtMd) || xt.XtMd.res < 0) return;
@@ -1470,8 +1508,8 @@ namespace UI
                 double x = pos.x + xt.st_rol_cap.x - list_xt[0].st_rol_cap.x + xt.st_vs_pos_xtshp.x;
                 double y = pos.y + xt.st_cap_pos.y - list_xt[0].st_rol_cap.y + xt.st_vs_pos_xtshp.y;
                 if (!FlyFinite(x) || !FlyFinite(y)) return;
-                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴: {1}正被对臂使用，先到落料位上方等 X={2:F3} Y={3:F3}",
-                    disc, tray.disc, x, y));
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴: {1}{4}，先到落料位上方等 X={2:F3} Y={3:F3}",
+                    disc, tray.disc, x, y, why));
                 EM_RES r = MT.ZupMove(ref quit, ref ax_x, x, ref ax_y, y);
                 if (r != EM_RES.OK)
                     VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("{0} 三吸嘴: 先到落料位上方等待未完成（{1}），拿到料盘后照常落料", disc, r));

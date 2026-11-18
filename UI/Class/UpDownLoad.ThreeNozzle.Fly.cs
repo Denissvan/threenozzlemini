@@ -95,6 +95,9 @@ namespace UI
 
         private static bool FlyFinite(double v) { return !double.IsNaN(v) && !double.IsInfinity(v); }
 
+        /// <summary>相机少收图时，多久没有新图/新结果就判定丢帧（ms）。0=关闭，恢复固定等满 ThreeNozzleFlyWaitMs。</summary>
+        public static int ThreeNozzleFlyLostFrameGraceMs = 500;
+
         /// <summary>最长等多久飞拍结果（ms）。</summary>
         private const int ThreeNozzleFlyWaitMs = 3000;
         private static int threeNozzleFlyTraceSequence;
@@ -299,10 +302,23 @@ namespace UI
                         shot.Result = new Cam.VisionOutPutData { TaskName = shot.Task, bOK = true, bUpdate = true, PosMM = new ST_XYA(0, 0, 0), BarCode = "" };
                     continue;
                 }
+                // 运动已走完才进到这里：图像在触发后几十毫秒内就到，视觉 CT 最长百来毫秒。
+                // 相机收到的张数少于配置、且 ThreeNozzleFlyLostFrameGraceMs 内既没有新图也没有新结果，就判定丢帧，不再死等满 3 秒
+                // （18 号日志：进夹具张数不符时臂停在夹具上方约 3.5 秒才去定拍补拍）。
+                int lastInput = camera.inputImageCnt, lastDone = camera.List_vs_task_cur.Count(t => t.ResData.bUpdate), idle = 0;
                 for (int waited = 0; waited < ThreeNozzleFlyWaitMs && camera.List_vs_task_cur.Any(t => !t.ResData.bUpdate); waited += 10)
                 {
                     if (quit || VAR.gsys_set.bquit) return EM_RES.QUIT;
                     Thread.Sleep(10);
+                    int input = camera.inputImageCnt, done = camera.List_vs_task_cur.Count(t => t.ResData.bUpdate);
+                    if (input != lastInput || done != lastDone) { lastInput = input; lastDone = done; idle = 0; continue; }
+                    idle += 10;
+                    if (ThreeNozzleFlyLostFrameGraceMs > 0 && input < list.Count && done >= input && idle >= ThreeNozzleFlyLostFrameGraceMs)
+                    {
+                        camera.FlyDiagnosticRecord(string.Format("判定丢帧：已收 {0}/{1} 张，{2}ms 无新图，提前结束等待（共等 {3}ms）",
+                            input, list.Count, idle, waited + 10));
+                        break;
+                    }
                 }
                 bool countOk = camera.inputImageCnt == list.Count && camera.List_vs_task_cur.Count == list.Count;
                 if (!countOk)

@@ -100,6 +100,30 @@ namespace UI
             WS.MdDat column = pair.Pockets[firstSlot] ?? pair.Pockets[1 - firstSlot];
             double wsX = column != null ? column.st_pos[id].x : 0;
             XT camRef = list_xt[0];
+            // 臂在料盘上的 X 原本取本组夹具列（料盘 X 跟着对准），进夹具时 X 不用再走。
+            // 对臂此刻正停在它的外侧列（例如模块2 在 -211 换料）时，本臂去 215 会超两臂合计上限，要原地等对臂离开（18 号 22 次，常见 3~7 秒）。
+            // 这时把臂 X 收到不挡对臂的位置，由料盘 X 多走一点补上；进夹具时臂再走剩下的几十毫米。料盘 X 超行程则照旧。
+            if (ThreeNozzleTrayFlyYieldXEnabled && positions.Count > 0)
+            {
+                AXIS otherX = id == 0 ? MT.AXIS_UDL2_X : MT.AXIS_UDL1_X;
+                double otherExtent = otherX == null ? 0 : Math.Max(Math.Abs(otherX.fenc_pos), Math.Abs(otherX.fcmd_pos));
+                double allowed = MT.EffectiveDualArmCombinedExtentLimit - otherExtent - 2.0;
+                if (FlyFinite(allowed) && Math.Abs(wsX) > allowed && allowed >= ThreeNozzleTrayFlyYieldMinX)
+                {
+                    double yieldX = Math.Sign(wsX) * allowed;
+                    ST_XYZA probe = camRef.CaliPosAt(positions[0].Pos[id], yieldX, 0);
+                    AXIS trayX = traybox_fd.ax_x;
+                    // CaliPosAt 在料盘 X 会小于 0 时把差额加回臂 X：那样臂还是伸出去，等于没让，照旧等
+                    if (trayX != null && FlyFinite(probe.a) && probe.a > 0.5 && Math.Abs(probe.x - yieldX) < 0.01 &&
+                        probe.a >= trayX.sln && probe.a <= trayX.slp)
+                    {
+                        VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(
+                            "{0} 供料盘飞拍: 对臂在 X={1:F3}，本臂夹具列 X={2:F3} 会超合计上限 {3:F3}，臂改在 X={4:F3} 取料（料盘X={5:F3}），不原地等对臂",
+                            disc, otherX.fenc_pos, wsX, MT.EffectiveDualArmCombinedExtentLimit, yieldX, probe.a));
+                        wsX = yieldX;
+                    }
+                }
+            }
             List<ThreeNozzleTrayFlyInfo> infos = new List<ThreeNozzleTrayFlyInfo>();
             for (int i = 0; i < Math.Min(need, positions.Count); i++)
             {
@@ -271,6 +295,11 @@ namespace UI
         /// 上机初期建议把供料盘飞拍切到“对比”模式跑一段，看飞拍与定拍的差值是否和改之前一样。
         /// </summary>
         public static bool ThreeNozzleTrayShortRunUpEnabled = true;
+
+        /// <summary>开关：对臂占着外侧列时，供料盘飞拍的臂 X 收到不挡对臂的位置（料盘 X 补偿），不原地等（默认开）。</summary>
+        public static bool ThreeNozzleTrayFlyYieldXEnabled = true;
+        /// <summary>收臂后 X 小于这个值就不收了（照旧等对臂），避免臂退得太远、进夹具时 X 要走很久。</summary>
+        private const double ThreeNozzleTrayFlyYieldMinX = 100.0;
         /// <summary>供料盘短助跑时，起点离第一个拍照位至少这么远（mm）。</summary>
         private const double ThreeNozzleTrayMinRunUp = 40.0;
 

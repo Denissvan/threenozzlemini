@@ -253,9 +253,22 @@ namespace UI
             if (ta > 10) ta /= 1000.0;
             if (td > 10) td /= 1000.0;
             double tx = ThreeNozzleMoveTimeEstimate(Math.Abs(x - ax_x.fcmd_pos), vx, ta, td) + 0.05;
-            double ty = Math.Abs(firstUp - curY) / vy;
+            // Y 从静止起跑（合并只发生在上一段运动走完之后）：按加速段估算到第一个上相机触发点的时间。
+            // 原来按匀速算，比实际少约 0.1s（Tacc/2），进夹具时 X 只差零点几毫米也合并不了（18 号晚上 99 次只合并 8 次）。
+            double tay = ax_y.tacc;
+            if (tay > 10) tay /= 1000.0;
+            double ty = ThreeNozzleTimeFromRest(Math.Abs(firstUp - curY), vy, FlyFinite(tay) && tay > 0 ? tay : 0);
             why = string.Format("X 约 {0:F2}s 到位，Y 约 {1:F2}s 到第一个上相机触发点", tx, ty);
             return tx + 0.15 < ty;
+        }
+
+        /// <summary>从静止加速走 distance 所需时间（不含减速），参数异常时按匀速。</summary>
+        internal static double ThreeNozzleTimeFromRest(double distance, double v, double tacc)
+        {
+            if (!(distance > 0) || !(v > 0)) return 0;
+            if (!(tacc > 1e-6)) return distance / v;
+            double rampDistance = v * tacc / 2;
+            return distance >= rampDistance ? distance / v + tacc / 2 : Math.Sqrt(2 * distance * tacc / v);
         }
 
         /// <summary>单轴点到点运动时间估算（梯形速度曲线，走不到全速时按三角形）。参数异常时返回 +∞。</summary>
@@ -453,12 +466,20 @@ namespace UI
             source = "另一臂当前位置";
             AXIS otherX = other == 0 ? MT.AXIS_UDL1_X : MT.AXIS_UDL2_X;
             if (otherX != null && FlyFinite(otherX.fenc_pos)) reach = Math.Abs(otherX.fenc_pos);
+            // 只算另一臂真正会去的穴：与 ThreeNozzleEnsurePlan 相同，按穴在列表中的序号，LOW 管 序号%8<4，HIGH 管 序号%8≥4。
+            // （18 号晚上日志：WS2Cfg/MD9/PX1=343.439、WS2Cfg/MD8/PX2=-342.017 是对臂负责的穴里本臂那一套坐标，本臂从来不去，
+            //  却被算成“最远工作位置”，两臂提前预取后都被压到外侧 X=26/-25 停车。）
+            UpDownLoad otherArm = other == 0 ? COM.UDLoad1 : COM.UDLoad2;
+            EM_FIN_MOD otherMode = otherArm == null ? EM_FIN_MOD.ALL : otherArm.FindMod;
             foreach (WS ws in COM.list_ws)
             {
                 if (ws == null || ws.list_md == null) continue;
-                foreach (WS.MdDat md in ws.list_md)
+                for (int k = 0; k < ws.list_md.Count; k++)
                 {
+                    WS.MdDat md = ws.list_md[k];
                     if (md == null) continue;
+                    if (otherMode == EM_FIN_MOD.NONE || (otherMode == EM_FIN_MOD.LOW && k % 8 >= 4) ||
+                        (otherMode == EM_FIN_MOD.HIGH && k % 8 < 4)) continue;
                     bool enabled;
                     try { enabled = md.benable; } catch { enabled = true; }
                     if (!enabled) continue;

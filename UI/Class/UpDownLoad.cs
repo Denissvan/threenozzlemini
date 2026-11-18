@@ -365,7 +365,31 @@ namespace UI
                 VAR.msg.AddMsg(Msg.EM_MSGTYPE.ERR, disc + " 定位让位失败：Z轴未处于抬起位置，禁止横向让位");
                 return EM_RES.ERR;
             }
+            EM_RES waitYield = YieldToWaitingArmWhileIdle(ref bquit);
+            if (waitYield != EM_RES.OK) return waitYield;
             return ProcessPendingSpecialDualArmYield(ref bquit);
+        }
+
+        /// <summary>
+        /// 本臂停在等待点（等料盘锁/等换盘等，轴已停、Z已抬起）时，如果对臂正排队等X而本臂外伸挡住了它，
+        /// 本臂自己把X缩回到刚好不挡的位置。不依赖“特殊避障”开关。
+        /// 典型死锁：对臂拿着料盘锁在等X，本臂停在外侧等这把料盘锁——谁都不动，30秒后报“双臂避障等待超时”。
+        /// 只动本臂X（本线程执行，Y不动），走正常运动检查；拿到锁后本臂照常再走到目标位。
+        /// </summary>
+        private EM_RES YieldToWaitingArmWhileIdle(ref bool bquit)
+        {
+            if (PT_SET.bSpecialDualArmAvoidance || ax_x == null || VAR.gsys_set.status != EM_SYS_STA.RUN) return EM_RES.OK;
+            double allowed, otherExtent;
+            if (!MT.TryGetBlockingWaitingArm(id, ax_x.fenc_pos, out allowed, out otherExtent)) return EM_RES.OK;
+            double fromX = ax_x.fenc_pos;
+            double newX = allowed > 0 ? Math.Sign(fromX) * allowed : 0;
+            VAR.msg.AddMsg(Msg.EM_MSGTYPE.SYS, string.Format(
+                "{0} 等待中主动让位：对臂排队要外伸 {1:F3}，本臂 X={2:F3} 挡住，退到 X={3:F3}（Y={4:F3} 不动）",
+                disc, otherExtent, fromX, newX, ax_y == null ? 0 : ax_y.fenc_pos));
+            EM_RES res = MT.Move(ref bquit, ref ax_x, newX);
+            if (res != EM_RES.OK)
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, disc + " 等待中主动让位未完成：" + res);
+            return res;
         }
 
         private EM_RES ProcessPendingSpecialDualArmYield(ref bool bquit)

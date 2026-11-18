@@ -139,6 +139,24 @@ namespace UI
         private const int DualArmAvoidanceWaitTimeoutMs = 30000;
         private const int DualArmAvoidanceWaitSliceMs = 100;
         private const double DualArmYieldMargin = 1.0;
+        /// <summary>正在排队等X的臂要求的外伸量（NaN=没在等）。给对臂在自己的等待点判断“是不是我挡了它”。</summary>
+        private static readonly double[] dualArmWaitingExtent = { double.NaN, double.NaN };
+
+        /// <summary>
+        /// 对臂正在等X、且本臂当前外伸挡住了它：返回 true，allowedMyExtent=本臂最多还能伸多少。
+        /// 只读判断，退让动作由本臂自己的线程在安全等待点执行（UpDownLoad.ProcessPositioningYield）。
+        /// </summary>
+        internal static bool TryGetBlockingWaitingArm(int myArm, double myX, out double allowedMyExtent, out double otherExtent)
+        {
+            lock (dualArmXReservationLock)
+            {
+                otherExtent = dualArmWaitingExtent[myArm == 0 ? 1 : 0];
+                allowedMyExtent = double.NaN;
+                if (double.IsNaN(otherExtent)) return false;
+                allowedMyExtent = EffectiveDualArmCombinedExtentLimit - otherExtent - DualArmYieldMargin;
+                return Math.Abs(myX) > Math.Max(0, allowedMyExtent) + 0.05;
+            }
+        }
         private static int dualArmYieldPriority = -1;
 
         internal delegate EM_RES PositioningYieldHandler(ref bool bquit);
@@ -1898,6 +1916,7 @@ namespace UI
                         if (!hasWaited)
                         {
                             hasWaited = true;
+                            dualArmWaitingExtent[armId] = requestedExtent;
                             if (otherHasPriority)
                             {
                                 VAR.msg.AddMsg(Msg.EM_MSGTYPE.SYS, string.Format(
@@ -1982,6 +2001,7 @@ namespace UI
             {
                 lock (dualArmXReservationLock)
                 {
+                    dualArmWaitingExtent[armId] = double.NaN;
                     if (yieldGeneration > 0 && dualArmYieldPriority == armId)
                     {
                         ClearDualArmYieldRequestUnsafe(otherId, yieldGeneration, "预约结束");

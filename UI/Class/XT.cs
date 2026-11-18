@@ -1011,6 +1011,60 @@ namespace UI
         /// <param name="st_pos">取料坐标</param>
         /// <param name="bpick">取:true 放:false</param>
         /// <returns></returns>
+        /// <summary>开关：每次取/放料写一条“取放计时”诊断日志（平移/Z下/底部等待/Z上，及到位时等编码器的额外睡眠）。</summary>
+        public static bool PickPlaceTimingLogEnabled = true;
+
+        /// <summary>取放计时的中间记录。只读诊断，不影响动作。</summary>
+        private sealed class PickPlaceTiming
+        {
+            private readonly System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+            public long Move = -1, Down = -1, Bottom = -1;
+            public int SettleX, SettleY;
+            public double LagX = double.NaN, LagY = double.NaN;
+            public long Now { get { return sw.ElapsedMilliseconds; } }
+        }
+
+        private PickPlaceTiming BeginPickPlaceTiming()
+        {
+            if (!PickPlaceTimingLogEnabled) return null;
+            try
+            {
+                if (ax_x != null) ax_x.LastSettleExtraMs = 0;
+                if (ax_y != null) ax_y.LastSettleExtraMs = 0;
+            }
+            catch { }
+            return new PickPlaceTiming();
+        }
+
+        private void MarkPickPlaceArrived(PickPlaceTiming t)
+        {
+            if (t == null) return;
+            try
+            {
+                t.Move = t.Now;
+                t.SettleX = ax_x == null ? 0 : ax_x.LastSettleExtraMs;
+                t.SettleY = ax_y == null ? 0 : ax_y.LastSettleExtraMs;
+                t.LagX = ax_x == null ? double.NaN : ax_x.fcmd_pos - ax_x.fenc_pos;
+                t.LagY = ax_y == null ? double.NaN : ax_y.fcmd_pos - ax_y.fenc_pos;
+            }
+            catch { }
+        }
+
+        private void LogPickPlaceTiming(PickPlaceTiming t, string kind, EM_RES result)
+        {
+            if (t == null) return;
+            try
+            {
+                long end = t.Now;
+                Func<long, long, string> span = (a, b) => a < 0 || b < 0 ? "-" : (b - a).ToString();
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(
+                    "{0} 取放计时[{1}] 平移={2}ms Z下={3}ms 底部={4}ms Z上={5}ms 合计={6}ms；到位后等编码器 X+{7}ms Y+{8}ms，到位残差 X={9:F3} Y={10:F3}；结果={11}",
+                    disc, kind, t.Move < 0 ? "-" : t.Move.ToString(), span(t.Move, t.Down), span(t.Down, t.Bottom),
+                    span(t.Bottom < 0 ? t.Down : t.Bottom, end), end, t.SettleX, t.SettleY, t.LagX, t.LagY, result));
+            }
+            catch { }
+        }
+
         private EM_RES MoveToPickPlacePosition(ref bool bquit, ST_XYZA pos, bool raiseZ)
         {
             UpDownLoad owner = Parent;
@@ -1066,7 +1120,7 @@ namespace UI
                     }
                 }
             }
-           
+            PickPlaceTiming timing = BeginPickPlaceTiming();
             try
             {
                 //move to posInf
@@ -1085,6 +1139,7 @@ namespace UI
                 {
                     res = MoveToPickPlacePosition(ref bquit, st_pos, false);
                 }
+                MarkPickPlaceArrived(timing);
                
                 //ax_y.SetToWorkSpd();
                 if (res != EM_RES.OK) { goto CleanupComplete; }
@@ -1099,6 +1154,7 @@ namespace UI
                 }
                
                 res = MT.Move(ref bquit, ref ax_z, st_pos.z);
+                if (timing != null) timing.Down = timing.Now;
                 if (res != EM_RES.OK) { goto CleanupComplete; }
                 
                 //Thread.Sleep(10);
@@ -1175,6 +1231,7 @@ namespace UI
 
                     }
                 }
+                if (timing != null) timing.Bottom = timing.Now;
                
             }
             finally
@@ -1202,6 +1259,7 @@ namespace UI
                     }
                   
                 }                
+                LogPickPlaceTiming(timing, bpick ? "取料PickOrPlace" : "放料PickOrPlace", res);
             }
 
         CleanupComplete:
@@ -1301,6 +1359,7 @@ namespace UI
                 }
             }
 
+            PickPlaceTiming timing = BeginPickPlaceTiming();
             try
             {
                 //move to posIn
@@ -1310,12 +1369,14 @@ namespace UI
                 //    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0}速度降为原来的40%:", ax_y.disc));
                 //}
                 res = MoveToPickPlacePosition(ref bquit, pos, true);
+                MarkPickPlaceArrived(timing);
                 //ax_y.SetToWorkSpd();
                 if (res != EM_RES.OK) { goto CleanupComplete; }
 
                 cy_zk.SetOn();
                 //down
                 res = MT.Move(ref bquit, ref ax_z, pos.z);
+                if (timing != null) timing.Down = timing.Now;
                 if (res != EM_RES.OK)
                 {
                     LogZFailure("取料(Pick) Z下降", pos.z, res);
@@ -1335,6 +1396,7 @@ namespace UI
                     }
 
                 }
+                if (timing != null) timing.Bottom = timing.Now;
                 //res = cy_zk.SetOn(ref bquit, bcheck ? 1000 : 100);
                 if (!bcheck && res == EM_RES.TIMEOUT) { res = EM_RES.OK; goto CleanupComplete; }
                 else if (res != EM_RES.OK)
@@ -1378,6 +1440,7 @@ namespace UI
                     VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, VAR.IsChinese?string.Format("{0} 取料后复检失败!",disc): string.Format("{0} Failure to recheck after picking!        ({0} 取料后复检失败!)", disc));
                     res = EM_RES.PICK_ERR;
                 }
+                LogPickPlaceTiming(timing, "取料Pick", res);
             }
 
         CleanupComplete:
@@ -1418,14 +1481,17 @@ namespace UI
                 return EM_RES.PLACE_ERR;
             }
 
+            PickPlaceTiming timing = BeginPickPlaceTiming();
             try
             {
  
                 res = MoveToPickPlacePosition(ref bquit, pos, true);
+                MarkPickPlaceArrived(timing);
                 if (res != EM_RES.OK) { goto CleanupComplete; }
 
                 //down
                 res = MT.Move(ref bquit, ref ax_z, pos.z);
+                if (timing != null) timing.Down = timing.Now;
                 if (res != EM_RES.OK)
                 {
                     LogZFailure("放料(Place) Z下降", pos.z, res);
@@ -1436,6 +1502,7 @@ namespace UI
                 cy_zk.SetOff();
                 gpio_pzk.SetOn();
                 Thread.Sleep(50);
+                if (timing != null) timing.Bottom = timing.Now;
             }
             finally
             {
@@ -1444,6 +1511,7 @@ namespace UI
                 EM_RES raiseResult = MT.Move(ref b, ref ax_z, 0);
                 if (res == EM_RES.OK) res = raiseResult;
                 gpio_pzk.SetOff();
+                LogPickPlaceTiming(timing, "放料Place", res);
             }
 
         CleanupComplete:

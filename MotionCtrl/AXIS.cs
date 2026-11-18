@@ -2337,8 +2337,11 @@ namespace MotionCtrl
         #endregion
         #region 等待定位完成
         double tempDis = 0;
+        /// <summary>诊断用：最近一次 WaitForMoveDone 在指令走完后为等编码器到位额外睡了多少 ms（0/10/110/210）。</summary>
+        public volatile int LastSettleExtraMs;
         public EM_RES WaitForMoveDone(ref bool pbquit, double targetpos, int timeout_ms, bool bdoevent = false)
         {
+            LastSettleExtraMs = 0;
             //wait stop
             res = WaitForStop(ref pbquit, timeout_ms, bdoevent);
             if (res != EM_RES.OK) return res;
@@ -2357,6 +2360,7 @@ namespace MotionCtrl
                 if (Math.Abs(targetpos * pul_per_mm - enc_pos) <= quickObj) return EM_RES.OK;
             }
             else if (Math.Abs(targetpos * pul_per_mm - cmd_pos) <= 60) return EM_RES.OK;
+            LastSettleExtraMs = 10;
             Thread.Sleep(10);
            // VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, "轴名称为:"+disc+"卡序号"+card.id);
             if (mt_type == MT_TYPE.SEVER)
@@ -2382,6 +2386,7 @@ namespace MotionCtrl
 
             if (curDisPos > objDis)
             {            
+                LastSettleExtraMs += 100;
                 Thread.Sleep(100);
                 if (mt_type == MT_TYPE.SEVER )
                 {
@@ -2405,6 +2410,7 @@ namespace MotionCtrl
                 if (curDisPos <= objDis) return EM_RES.OK;
                 else
                 {
+                    LastSettleExtraMs += 100;
                     Thread.Sleep(100);
                     if (mt_type == MT_TYPE.SEVER)
                     {

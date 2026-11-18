@@ -247,10 +247,28 @@ namespace UI
             if (accX > 10) accX /= 1000.0;   // 兼容按 ms 填写
             if (!(vx > 0) || !(vy > 0) || !FlyFinite(accX) || accX < 0) { why = "读不到 X/Y 速度参数"; return false; }
             double firstUp = increasing ? upShots.Min(s => s.TriggerY) : upShots.Max(s => s.TriggerY);
-            double tx = Math.Abs(x - ax_x.fcmd_pos) / vx + accX;
+            // X 用梯形/三角形速度曲线估算（原来按“距离/速度 + 加速时间 + 减速时间”，1mm 也算成 0.4s，从来合并不了），
+            // 再加 0.05s 留给 S 曲线和伺服整定；Y 仍按匀速估（比实际快，偏保守）
+            double ta = ax_x.tacc, td = ax_x.tdec;
+            if (ta > 10) ta /= 1000.0;
+            if (td > 10) td /= 1000.0;
+            double tx = ThreeNozzleMoveTimeEstimate(Math.Abs(x - ax_x.fcmd_pos), vx, ta, td) + 0.05;
             double ty = Math.Abs(firstUp - curY) / vy;
             why = string.Format("X 约 {0:F2}s 到位，Y 约 {1:F2}s 到第一个上相机触发点", tx, ty);
             return tx + 0.15 < ty;
+        }
+
+        /// <summary>单轴点到点运动时间估算（梯形速度曲线，走不到全速时按三角形）。参数异常时返回 +∞。</summary>
+        internal static double ThreeNozzleMoveTimeEstimate(double distance, double v, double tacc, double tdec)
+        {
+            if (!(distance >= 0) || !(v > 0) || !FlyFinite(tacc) || !FlyFinite(tdec) || tacc < 0 || tdec < 0) return double.PositiveInfinity;
+            if (distance < 1e-6) return 0;
+            if (tacc < 1e-6 && tdec < 1e-6) return distance / v;
+            double rampDistance = v * (tacc + tdec) / 2;
+            if (distance >= rampDistance) return distance / v + (tacc + tdec) / 2;
+            // 三角形：峰值速度 p，加速段 p*tacc/v、减速段 p*tdec/v，距离 p²(tacc+tdec)/(2v)
+            double peak = Math.Sqrt(2 * distance * v / (tacc + tdec));
+            return peak * (tacc + tdec) / v;
         }
 
         /// <summary>飞拍走完后等结果并逐张核对。</summary>
@@ -404,14 +422,15 @@ namespace UI
                 if (column != null && FlyFinite(column.st_pos[id].x)) parkX = column.st_pos[id].x;
                 // 停车位不能挡住另一臂：另一臂还在换料/取料时，若本臂停在外侧列，两臂合计外伸超限，
                 // 另一臂去外侧料盘列/夹具列会一直等（ZupMove 10 秒超时报“等待…进入安全位置超时”，换料中断）。
-                double otherReach = ThreeNozzleOtherArmReach();
+                string reachSource;
+                double otherReach = ThreeNozzleOtherArmReach(out reachSource);
                 double allowed = MT.EffectiveDualArmCombinedExtentLimit - otherReach - 2.0;
                 if (Math.Abs(parkX) > allowed)
                 {
                     double clamped = allowed > 0 ? Math.Sign(parkX) * allowed : 0;
                     VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(
-                        "{0} 三吸嘴飞拍: 停车列 X={1:F3} 会挡住另一臂（另一臂最远工作 X 约 {2:F3}，合计上限 {3:F3}），改停 X={4:F3}",
-                        disc, parkX, otherReach, MT.EffectiveDualArmCombinedExtentLimit, clamped));
+                        "{0} 三吸嘴飞拍: 停车列 X={1:F3} 会挡住另一臂（另一臂最远工作 X 约 {2:F3}，来自 {5}，合计上限 {3:F3}），改停 X={4:F3}",
+                        disc, parkX, otherReach, MT.EffectiveDualArmCombinedExtentLimit, clamped, reachSource));
                     parkX = clamped;
                 }
             }
@@ -423,11 +442,15 @@ namespace UI
             return res;
         }
 
-        /// <summary>另一臂在各工站夹具上可能用到的最远 |X|（拍照位/取料位），用来限制本臂停车位不挡路。料盘列在夹具列范围内。</summary>
-        private double ThreeNozzleOtherArmReach()
+        /// <summary>
+        /// 另一臂在各工站夹具上可能用到的最远 |X|（拍照位/取料位），用来限制本臂停车位不挡路。料盘列在夹具列范围内。
+        /// 只算启用的穴（未启用的工站/穴不会去）；source 写明最远值来自哪个配置键，便于核对示教数据。
+        /// </summary>
+        private double ThreeNozzleOtherArmReach(out string source)
         {
             int other = id == 0 ? 1 : 0;
             double reach = 0;
+            source = "另一臂当前位置";
             AXIS otherX = other == 0 ? MT.AXIS_UDL1_X : MT.AXIS_UDL2_X;
             if (otherX != null && FlyFinite(otherX.fenc_pos)) reach = Math.Abs(otherX.fenc_pos);
             foreach (WS ws in COM.list_ws)
@@ -436,10 +459,21 @@ namespace UI
                 foreach (WS.MdDat md in ws.list_md)
                 {
                     if (md == null) continue;
-                    if (md.st_pos != null && md.st_pos.Length > other && FlyFinite(md.st_pos[other].x) && Math.Abs(md.st_pos[other].x) < 1000)
-                        reach = Math.Max(reach, Math.Abs(md.st_pos[other].x));
-                    if (md.st_pickpos != null && md.st_pickpos.Length > other && FlyFinite(md.st_pickpos[other].x) && Math.Abs(md.st_pickpos[other].x) < 1000)
-                        reach = Math.Max(reach, Math.Abs(md.st_pickpos[other].x));
+                    bool enabled;
+                    try { enabled = md.benable; } catch { enabled = true; }
+                    if (!enabled) continue;
+                    if (md.st_pos != null && md.st_pos.Length > other && FlyFinite(md.st_pos[other].x) &&
+                        Math.Abs(md.st_pos[other].x) < 1000 && Math.Abs(md.st_pos[other].x) > reach)
+                    {
+                        reach = Math.Abs(md.st_pos[other].x);
+                        source = string.Format("WS{0}Cfg/MD{1}/X{2}={3:F3}", ws.num + 1, md.Num, other + 1, md.st_pos[other].x);
+                    }
+                    if (md.st_pickpos != null && md.st_pickpos.Length > other && FlyFinite(md.st_pickpos[other].x) &&
+                        Math.Abs(md.st_pickpos[other].x) < 1000 && Math.Abs(md.st_pickpos[other].x) > reach)
+                    {
+                        reach = Math.Abs(md.st_pickpos[other].x);
+                        source = string.Format("WS{0}Cfg/MD{1}/PX{2}={3:F3}", ws.num + 1, md.Num, other + 1, md.st_pickpos[other].x);
+                    }
                 }
             }
             return reach;
@@ -450,6 +484,9 @@ namespace UI
         /// 停的位置 Y 仍是飞拍起点（料盘安全区内），转盘转动、开合盖时臂不进夹具区。
         /// </summary>
         public static bool ThreeNozzleParkAtColumnEnabled = true;
+
+        /// <summary>开关：进夹具飞拍按第一个取料位的 X 飞（默认开）。关掉恢复按穴拍照列 X 飞、到位后再横移到取料位。</summary>
+        public static bool ThreeNozzleFlyAtApproachXEnabled = true;
 
         /// <summary>预取时是否把下相机拍照推迟到进夹具飞拍。</summary>
         internal bool ThreeNozzleCanDeferDown()
@@ -541,6 +578,19 @@ namespace UI
                 ThreeNozzleFlyShot firstUp = shots.FirstOrDefault(s => s.Camera == upcam);
                 double x = firstUp != null ? firstUp.X
                     : FlyFinite(nextX) ? nextX : column != null ? column.st_pos[id].x : ax_x.fcmd_pos;
+                // 上相机只有“放料前”时：直接在进夹具第一个动作（取旧料）的 X 上飞，飞完不再为零点几毫米单独横移一次。
+                // 放料前结果按这一趟实际拍照 X 换算（FlyBeforePlaceX），与原来同列 X 差的处理相同；有取料前检查时不改。
+                if (ThreeNozzleFlyAtApproachXEnabled && firstUp != null && FlyFinite(nextX) && Math.Abs(nextX - x) > 0.001 &&
+                    checkShot[0] == null && checkShot[1] == null &&
+                    shots.Where(s => s.Camera == upcam).All(s => Object.ReferenceEquals(s, placeShot[0]) || Object.ReferenceEquals(s, placeShot[1])) &&
+                    Enumerable.Range(0, 2).All(s => placeShot[s] == null ||
+                        (pair.Pockets[s] != null && Math.Abs(nextX - pair.Pockets[s].st_pos[id].x) <= ThreeNozzlePrePlaceMaxColumnDx)))
+                {
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴飞拍[进夹具] 按第一个取料位 X={1:F3} 飞（拍照列 X={2:F3}，差 {3:F3}mm），到位后不再横移",
+                        disc, nextX, x, nextX - x));
+                    foreach (ThreeNozzleFlyShot shot in placeShot) if (shot != null) shot.X = nextX;
+                    x = nextX;
+                }
                 double minT = shots.Min(s => s.TriggerY), maxT = shots.Max(s => s.TriggerY);
                 double start = Math.Max(minT - ThreeNozzleFlyRunUp, ax_y.sln);
                 // 终点直接走到本组第一个动作的 Y（取旧料位或放料拍照位），不在相机后面停一下再进夹具

@@ -735,8 +735,16 @@ namespace UI
                 threeNozzleDrain = false;
                 threeNozzleEarly = pair;   // 先登记：中途失败时吸嘴上的料仍有身份，不会被当成“无计划持料”
                 EM_RES result = ThreeNozzlePreparePair(ref quit, pair, true);
+                // 一颗都没取到（例如等料盘时被另一臂报错停止打断）就撤销登记，否则续接时会误判
+                // “已有提前预取的料”而跳过预取，工站到位后才去料盘取（18日日志 13:40/14:02/14:10/14:31 共4次）。
+                // 只在三根吸嘴确实都无料时撤销，吸嘴上有料仍保留登记，避免被当成无计划持料。
+                if (pair.Prepared[0] == null && pair.Prepared[1] == null && ThreeNozzleAllNozzlesEmpty())
+                {
+                    if (result != EM_RES.OK && threeNozzleEarly == pair)
+                        VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴: 提前预取被打断（{1}），吸嘴均无料，撤销预取登记，续接时重新预取", disc, result));
+                    threeNozzleEarly = null;
+                }
                 if (result != EM_RES.OK) return result;
-                if (pair.Prepared[0] == null && pair.Prepared[1] == null) threeNozzleEarly = null;
                 result = ThreeNozzleParkAfterPrefetch(ref quit, pair);
                 VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴: 为{1}提前预取完成，预判穴位[{2}]，用时 {3:F2}s",
                     disc, target.disc,
@@ -746,6 +754,14 @@ namespace UI
             }
             catch { threeNozzleRecovery = true; throw; }
             finally { Interlocked.Exchange(ref threeNozzleExecutor, 0); }
+        }
+
+        /// <summary>三根吸嘴都没有物料记录且真空无料。</summary>
+        private bool ThreeNozzleAllNozzlesEmpty()
+        {
+            foreach (XT xt in list_xt)
+                if (xt.XtMd != null || (!Demo && xt.cy_zk.isONByChkSen)) return false;
+            return true;
         }
 
         /// <summary>

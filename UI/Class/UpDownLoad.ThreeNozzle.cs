@@ -864,7 +864,19 @@ namespace UI
                         case ThreeNozzleAction.PlaceB: result = ThreeNozzlePlaceOne(ref quit, pair, 1); break;
                         case ThreeNozzleAction.LeaveFixture:
                         {
-                            result = ThreeNozzleCompletePostPlaceChecks(ref quit, pair);
+                            // 回检飞拍的终点：接着要直接去料盘落料时飞到第一颗成品落料位的 Y，最后一组飞到等待位高度，
+                            // 不在夹具口（触发点 − 50mm）停一下再另走一段
+                            double backCheckEndY = double.NaN;
+                            if (ThreeNozzleBackCheckRunThroughEnabled)
+                            {
+                                bool willGoDirect = ThreeNozzleDirectUnloadEnabled && threeNozzlePairIndex < threeNozzlePairs.Count - 1 &&
+                                    list_xt.Any(nz => nz.XtMd != null && nz.XtMd.res >= 0);
+                                bool willTailDirect = threeNozzlePairIndex == threeNozzlePairs.Count - 1 &&
+                                    ThreeNozzleTailSkipHomeEnabled && !ThreeNozzleArmNeedsPostChecks(ws);
+                                if (willGoDirect) backCheckEndY = ThreeNozzleEstimateFirstUnloadY();
+                                else if (willTailDirect) backCheckEndY = list_xt[1].st_cap_pos.y;
+                            }
+                            result = ThreeNozzleCompletePostPlaceChecks(ref quit, pair, backCheckEndY);
                             if (result != EM_RES.OK) return result;
                             bool notLastPair = threeNozzlePairIndex < threeNozzlePairs.Count - 1;
                             // 不是最后一组、手上有成品接着要落料：不回零等待位停一下，直接从夹具去料盘
@@ -928,7 +940,7 @@ namespace UI
                 try
                 {
                     TrayBox tray = res == 0 ? traybox_ok : traybox_ng;
-                    if (tray == null || !tray.IsReady || tray.tray_cur == null || tray.ax_x == null) return;
+                    if (tray == null || !tray.IsReady || tray.trayActionRunning || tray.ChgML || tray.tray_cur == null || tray.ax_x == null) return;
                     var positions = tray.IsOkTray ? tray.tray_cur.GetPosList(Product.EM_CM_RES.EMPTY) :
                         tray.tray_cur.GetPosList(Product.EM_CM_RES.EMPTY, res);
                     if (positions == null || positions.Count == 0) return;   // 满盘要换：交给原流程
@@ -1041,6 +1053,9 @@ namespace UI
         /// 关掉恢复原来的回零等待位。
         /// </summary>
         public static bool ThreeNozzleTailSkipHomeEnabled = true;
+
+        /// <summary>开关：回检飞拍不在夹具口停，直接飞到接下来的落料位 Y（直接去料盘时）或等待位高度（最后一组）（默认开）。</summary>
+        public static bool ThreeNozzleBackCheckRunThroughEnabled = true;
 
         /// <summary>开关：离开夹具时成品料盘还在预定位，先把臂走到第一颗成品的落料位上方（默认开），不在夹具口停着等料盘。</summary>
         public static bool ThreeNozzleApproachDuringTrayPreMoveEnabled = true;
@@ -1496,18 +1511,9 @@ namespace UI
             if ((!ThreeNozzleApproachPlaceWhileWaitingEnabled && !force) || quit) return;
             try
             {
-                if (xt == null || xt.XtMd == null || IsModuleCheckSample(xt.XtMd) || xt.XtMd.res < 0) return;
-                int res = xt.XtMd.res;
-                TrayBox tray = res == 0 ? traybox_ok : traybox_ng;
-                if (tray == null || !tray.IsReady || tray.tray_cur == null) return;
-                var positions = tray.IsOkTray ? tray.tray_cur.GetPosList(Product.EM_CM_RES.EMPTY) :
-                    tray.tray_cur.GetPosList(Product.EM_CM_RES.EMPTY, res);
-                if (positions == null || positions.Count == 0) return;
-                // 与 ThreeNozzleUnloadOne 相同的算法（不含料盘视觉补偿），臂 X 按当前位置
-                ST_XYZA pos = xt.CaliPosAt(positions[0].Pos[id], 0, ax_x.fcmd_pos);
-                double x = pos.x + xt.st_rol_cap.x - list_xt[0].st_rol_cap.x + xt.st_vs_pos_xtshp.x;
-                double y = pos.y + xt.st_cap_pos.y - list_xt[0].st_rol_cap.y + xt.st_vs_pos_xtshp.y;
-                if (!FlyFinite(x) || !FlyFinite(y)) return;
+                TrayBox tray;
+                double x, y;
+                if (!ThreeNozzleEstimatePlaceXY(xt, out tray, out x, out y)) return;
                 VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴: {1}{4}，先到落料位上方等 X={2:F3} Y={3:F3}",
                     disc, tray.disc, x, y, why));
                 EM_RES r = MT.ZupMove(ref quit, ref ax_x, x, ref ax_y, y);
@@ -1517,6 +1523,87 @@ namespace UI
             catch (Exception ex)
             {
                 VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, disc + " 三吸嘴: 先到落料位上方等待跳过：" + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// 估算这个吸嘴上的成品落到 OK/NG 料盘下一个空位时臂的 X/Y（与 ThreeNozzleUnloadOne 相同算法，不含料盘视觉补偿，臂 X 按当前位置）。
+        /// 只读估算：不持锁时料盘数据可能被对臂改动，拿到锁后 ThreeNozzleUnloadOne 照常按实际空位走到位。
+        /// </summary>
+        private bool ThreeNozzleEstimatePlaceXY(XT xt, out TrayBox tray, out double x, out double y)
+        {
+            tray = null; x = y = double.NaN;
+            try
+            {
+                if (xt == null || xt.XtMd == null || IsModuleCheckSample(xt.XtMd) || xt.XtMd.res < 0) return false;
+                int res = xt.XtMd.res;
+                tray = res == 0 ? traybox_ok : traybox_ng;
+                if (tray == null || !tray.IsReady || tray.trayActionRunning || tray.ChgML || tray.tray_cur == null) return false;
+                var positions = tray.IsOkTray ? tray.tray_cur.GetPosList(Product.EM_CM_RES.EMPTY) :
+                    tray.tray_cur.GetPosList(Product.EM_CM_RES.EMPTY, res);
+                if (positions == null || positions.Count == 0) return false;
+                ST_XYZA pos = xt.CaliPosAt(positions[0].Pos[id], 0, ax_x.fcmd_pos);
+                x = pos.x + xt.st_rol_cap.x - list_xt[0].st_rol_cap.x + xt.st_vs_pos_xtshp.x;
+                y = pos.y + xt.st_cap_pos.y - list_xt[0].st_rol_cap.y + xt.st_vs_pos_xtshp.y;
+                return FlyFinite(x) && FlyFinite(y);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>本臂接下来第一颗要落盘的成品（与 ThreeNozzleUnloadCore 的顺序相同）落料位的 Y，估算不出返回 NaN。</summary>
+        private double ThreeNozzleEstimateFirstUnloadY()
+        {
+            IEnumerable<XT> order = NewSysInf.UserParams.bXtPrePlaceTrayByBigId
+                ? list_xt.OrderByDescending(nozzle => nozzle.id) : list_xt.OrderBy(nozzle => nozzle.id);
+            XT first = order.FirstOrDefault(xt => xt.XtMd != null && !IsModuleCheckSample(xt.XtMd) && xt.XtMd.res >= 0);
+            TrayBox tray; double x, y;
+            return first != null && ThreeNozzleEstimatePlaceXY(first, out tray, out x, out y) ? y : double.NaN;
+        }
+
+        /// <summary>
+        /// 开关：OK/NG 料盘放满最后一个空位后立即在后台换盘（默认开）。原来要等下一颗料要落时才换，
+        /// 18 号日志满盘到开始换盘一般隔 5~12 秒，换盘约 6 秒都压在要落料的那台模块上。
+        /// 换盘期间对臂要落这个料盘时，ThreeNozzleEnsureTray 会等 trayActionRunning 结束；后台换盘失败时下一次落料照原流程再换。
+        /// </summary>
+        public static bool ThreeNozzleEagerTrayChangeEnabled = true;
+
+        private void ThreeNozzleStartEagerTrayChange(TrayBox tray)
+        {
+            if (!ThreeNozzleEagerTrayChangeEnabled || tray == null || tray.IsFeedTray) return;
+            try
+            {
+                if (tray.trayActionRunning || tray.ChgML || !tray.IsReady || tray.tray_cur == null) return;
+                var empty = tray.tray_cur.GetPosList(Product.EM_CM_RES.EMPTY);
+                if (empty != null && empty.Count > 0) return;
+                tray.trayActionRunning = true;   // 先占住：任务真正开始前，对臂也会看到正在换盘而等待，不会重复换
+                bool demo = Demo;
+                string actor = disc;
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴: {1}已放满，立即后台换盘（不等下一颗料要落时再换）", actor, tray.disc));
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    EM_RES r = EM_RES.ERR;
+                    try
+                    {
+                        CtStepLog.SetContext(tray.disc, "满盘立即换盘");
+                        r = tray.Tray_Action(demo);
+                        ThreeNozzleInvalidateTrayCompensation(tray);
+                    }
+                    catch (Exception ex)
+                    {
+                        VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("{0} 三吸嘴: {1}后台换盘异常：{2}", actor, tray.disc, ex.Message));
+                    }
+                    finally
+                    {
+                        tray.trayActionRunning = false;   // Tray_Action 自己也会清；异常时这里兜底
+                    }
+                    VAR.msg.AddMsg(r == EM_RES.OK ? Msg.EM_MSGTYPE.DBG : Msg.EM_MSGTYPE.WAR, string.Format(
+                        "{0} 三吸嘴: {1}后台换盘结束（{2}）{3}", actor, tray.disc, r, r == EM_RES.OK ? "" : "，下一次落料时按原流程再换"));
+                });
+            }
+            catch (Exception ex)
+            {
+                tray.trayActionRunning = false;
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, disc + " 三吸嘴: 满盘后台换盘未启动：" + ex.Message);
             }
         }
 
@@ -1596,6 +1683,7 @@ namespace UI
             threeNozzleFinishedBarcodeChecks.Remove(xt.XtMd);
             threeNozzlePendingBarcodeWarnings.Remove(xt.XtMd);
             xt.XtMd = null;
+            ThreeNozzleStartEagerTrayChange(tray);
             return EM_RES.OK;
         }
 

@@ -39,7 +39,7 @@ namespace UI
             return Math.Min(v, Math.Sqrt(2 * (v / ta) * runUp));
         }
 
-        private EM_RES ThreeNozzleCompletePostPlaceChecks(ref bool quit, ThreeNozzleRuntimePair pair)
+        private EM_RES ThreeNozzleCompletePostPlaceChecks(ref bool quit, ThreeNozzleRuntimePair pair, double preferredEndY = double.NaN)
         {
             int[] slots = Enumerable.Range(0, 2).Where(s => (pair.Placed[s] || pair.ReworkStage[s] != 0) && !pair.Accepted[s]).ToArray();
             if (slots.Length == 0) return EM_RES.OK;
@@ -72,6 +72,12 @@ namespace UI
                 double runUp = shortRunUp ? ThreeNozzleBackCheckMinRunUp : ThreeNozzleFlyRunUp;
                 double start = shortRunUp ? Math.Max(plannedStart, max + runUp) : Math.Max(ax_y.fcmd_pos, max + runUp);
                 double end = Math.Max(ax_y.sln, min - ThreeNozzleFlyRunOut);
+                // 接着要去的方向和回检飞的方向一致（Y 减小）：直接飞到那里，不在夹具口停
+                if (FlyFinite(preferredEndY) && preferredEndY < end && preferredEndY >= ax_y.sln)
+                {
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 放料后回检：终点 {1:F3} 改为接下来的位置 Y={2:F3}，飞完不停直接到", disc, end, preferredEndY));
+                    end = preferredEndY;
+                }
                 if (shortRunUp)
                     VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(
                         "{0} 放料后回检：短助跑，从 Y={1:F3} 起飞（当前 Y={2:F3}，助跑 {3:F1}mm，第一个触发点速度约 {4:F0}mm/s，补偿按速度缩放）",

@@ -130,22 +130,40 @@ namespace UI
             double minY = infos.Min(f => f.CamPos.y), maxY = infos.Max(f => f.CamPos.y);
             double curY = ax_y.fcmd_pos;
             bool increasing = curY < (minY + maxY) / 2;
+            // 短助跑：当前 Y 离第一个拍照位已有 ≥40mm 就从当前位置飞，不再先退到“触发点 − 180mm”（料盘外侧）；
+            // 不够 40mm 时只退到 40mm。触发补偿按触发点处的估算速度等比缩小。
+            bool shortRunUp = ThreeNozzleTrayShortRunUpEnabled && !ThreeNozzleHardwareConfig.FlyTwoSpeedEnabled;
+            double plannedStart = double.NaN;
+            if (shortRunUp)
+            {
+                double edge = increasing ? minY - ThreeNozzleTrayMinRunUp - 1.0 : maxY + ThreeNozzleTrayMinRunUp + 1.0;
+                plannedStart = increasing ? Math.Min(curY, edge) : Math.Max(curY, edge);
+            }
+            double vWork = ax_y.spd_work;
             List<ThreeNozzleFlyShot> shots = infos.Select(f => new ThreeNozzleFlyShot
             {
                 Camera = upcam,
                 Task = CONST.ModUpFw,
                 X = f.CamPos.x,
                 NominalY = f.CamPos.y,
-                TriggerY = ThreeNozzleFlyTrigger(f.CamPos.y, ofs, increasing),
+                TriggerY = ThreeNozzleFlyTrigger(f.CamPos.y,
+                    shortRunUp && vWork > 0 ? ofs * ThreeNozzleSpeedAfterRunUp(Math.Abs(f.CamPos.y - plannedStart)) / vWork : ofs,
+                    increasing),
                 Identity = f.SourceIdx,
                 Label = "料盘穴" + f.SourceIdx,
             }).ToList();
             double firstTrig = increasing ? shots.Min(s => s.TriggerY) : shots.Max(s => s.TriggerY);
             double lastTrig = increasing ? shots.Max(s => s.TriggerY) : shots.Min(s => s.TriggerY);
-            double startY = increasing ? firstTrig - ThreeNozzleFlyRunUp : firstTrig + ThreeNozzleFlyRunUp;
+            double runUp = shortRunUp ? ThreeNozzleTrayMinRunUp : ThreeNozzleFlyRunUp;
+            double startY = increasing ? firstTrig - runUp : firstTrig + runUp;
             double endY = increasing ? lastTrig + ThreeNozzleFlyRunOut : lastTrig - ThreeNozzleFlyRunOut;
             // 当前位置已经在起点之外（助跑更长）就从当前位置飞；起点超出 Y 行程则不飞
             if (increasing ? curY < startY : curY > startY) startY = curY;
+            if (shortRunUp)
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(
+                    "{0} 供料盘飞拍：短助跑，从 Y={1:F3} 起飞（当前 Y={2:F3}，{3}，助跑 {4:F1}mm，第一个触发点速度约 {5:F0}mm/s，补偿按速度缩放）",
+                    disc, startY, curY, increasing ? "Y 增大方向" : "Y 减小方向", Math.Abs(firstTrig - startY),
+                    ThreeNozzleSpeedAfterRunUp(Math.Abs(firstTrig - startY))));
             if (startY < ax_y.sln || startY > ax_y.slp || endY < ax_y.sln || endY > ax_y.slp)
             {
                 ThreeNozzleNoteTrayFlyOff(string.Format("飞拍起终点 Y {0:F1}→{1:F1} 超出 Y 行程，定拍取料", startY, endY));
@@ -247,6 +265,14 @@ namespace UI
             MT.Move(ref quit, ref u, 0);
             return EM_RES.OK;
         }
+
+        /// <summary>
+        /// 开关：供料盘飞拍短助跑（默认开）。关掉恢复原来先退到“第一个触发点 − 180mm”（料盘外侧）再飞。
+        /// 上机初期建议把供料盘飞拍切到“对比”模式跑一段，看飞拍与定拍的差值是否和改之前一样。
+        /// </summary>
+        public static bool ThreeNozzleTrayShortRunUpEnabled = true;
+        /// <summary>供料盘短助跑时，起点离第一个拍照位至少这么远（mm）。</summary>
+        private const double ThreeNozzleTrayMinRunUp = 40.0;
 
         private static string lastTrayFlyOffReason;
         private void ThreeNozzleNoteTrayFlyOff(string why)

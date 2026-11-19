@@ -1019,21 +1019,41 @@ namespace UI
         {
             private readonly System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
             public long Move = -1, Down = -1, Bottom = -1;
-            public int SettleX, SettleY;
-            public double LagX = double.NaN, LagY = double.NaN;
+            public int SettleX, SettleY, SettleU;
+            public double LagX = double.NaN, LagY = double.NaN, LagU = double.NaN;
+            public double StartX = double.NaN, StartY = double.NaN, StartU = double.NaN;
+            public double DX = double.NaN, DY = double.NaN, DU = double.NaN;
             public long Now { get { return sw.ElapsedMilliseconds; } }
         }
 
         private PickPlaceTiming BeginPickPlaceTiming()
         {
             if (!PickPlaceTimingLogEnabled) return null;
+            PickPlaceTiming t = new PickPlaceTiming();
             try
             {
-                if (ax_x != null) ax_x.LastSettleExtraMs = 0;
-                if (ax_y != null) ax_y.LastSettleExtraMs = 0;
+                if (ax_x != null) { ax_x.LastSettleExtraMs = 0; t.StartX = ax_x.fcmd_pos; }
+                if (ax_y != null) { ax_y.LastSettleExtraMs = 0; t.StartY = ax_y.fcmd_pos; }
+                if (ax_u != null) { ax_u.LastSettleExtraMs = 0; t.StartU = ax_u.fcmd_pos; }
+                LogAxisProfileOnce();
             }
             catch { }
-            return new PickPlaceTiming();
+            return t;
+        }
+
+        private static readonly HashSet<string> axisProfileLogged = new HashSet<string>();
+
+        /// <summary>[R9] 每个轴第一次参与取放时写一次速度参数（工作速度/加减速时间/S曲线时间/当前速度），核对夹具内短距离平移为什么慢。</summary>
+        private void LogAxisProfileOnce()
+        {
+            foreach (AXIS ax in new[] { ax_x, ax_y, ax_u, ax_z })
+            {
+                if (ax == null) continue;
+                lock (axisProfileLogged) { if (!axisProfileLogged.Add(ax.disc)) continue; }
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(
+                    "[R9] 轴参数 {0}: 工作速度={1:F1} 当前速度={2:F1} 起始速度={3:F1} 停止速度={4:F1} Tacc={5:F3} Tdec={6:F3} TS(S曲线)={7:F3} 脉冲/mm={8:F3}",
+                    ax.disc, ax.spd_work, ax.spd_cur, ax.spd_start, ax.spd_stop, ax.tacc, ax.tdec, ax.ts, ax.pul_per_mm));
+            }
         }
 
         private void MarkPickPlaceArrived(PickPlaceTiming t)
@@ -1046,6 +1066,11 @@ namespace UI
                 t.SettleY = ax_y == null ? 0 : ax_y.LastSettleExtraMs;
                 t.LagX = ax_x == null ? double.NaN : ax_x.fcmd_pos - ax_x.fenc_pos;
                 t.LagY = ax_y == null ? double.NaN : ax_y.fcmd_pos - ax_y.fenc_pos;
+                t.SettleU = ax_u == null ? 0 : ax_u.LastSettleExtraMs;
+                t.LagU = ax_u == null ? double.NaN : ax_u.fcmd_pos - ax_u.fenc_pos;
+                t.DX = ax_x == null ? double.NaN : ax_x.fcmd_pos - t.StartX;
+                t.DY = ax_y == null ? double.NaN : ax_y.fcmd_pos - t.StartY;
+                t.DU = ax_u == null ? double.NaN : ax_u.fcmd_pos - t.StartU;
             }
             catch { }
         }
@@ -1058,9 +1083,10 @@ namespace UI
                 long end = t.Now;
                 Func<long, long, string> span = (a, b) => a < 0 || b < 0 ? "-" : (b - a).ToString();
                 VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(
-                    "{0} [R1] 取放计时[{1}] 平移={2}ms Z下={3}ms 底部={4}ms Z上={5}ms 合计={6}ms；到位后等编码器 X+{7}ms Y+{8}ms，到位残差 X={9:F3} Y={10:F3}；结果={11}",
+                    "{0} [R1] 取放计时[{1}] 平移={2}ms Z下={3}ms 底部={4}ms Z上={5}ms 合计={6}ms；到位后等编码器 X+{7}ms Y+{8}ms U+{12}ms，到位残差 X={9:F3} Y={10:F3} U={13:F3}；[R9]平移量 X={14:F3} Y={15:F3} U={16:F3}；结果={11}",
                     disc, kind, t.Move < 0 ? "-" : t.Move.ToString(), span(t.Move, t.Down), span(t.Down, t.Bottom),
-                    span(t.Bottom < 0 ? t.Down : t.Bottom, end), end, t.SettleX, t.SettleY, t.LagX, t.LagY, result));
+                    span(t.Bottom < 0 ? t.Down : t.Bottom, end), end, t.SettleX, t.SettleY, t.LagX, t.LagY, result,
+                    t.SettleU, t.LagU, t.DX, t.DY, t.DU));
             }
             catch { }
         }

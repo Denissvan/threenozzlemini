@@ -325,6 +325,7 @@ namespace UI
                 EM_RES pendingIssue = ThreeNozzleEntryPrepare(ref quit);
                 if (pendingIssue != EM_RES.OK) return pendingIssue;
                 EM_RES result = ThreeNozzleEnsurePlan(ws);
+                if (result == EM_RES.OK) ThreeNozzleLeadNote(ws, -1, threeNozzlePairs.Count);   // [R9]
                 if (result == EM_RES.OK) result = ThreeNozzleAdoptEarly(ref quit);
                 if (result != EM_RES.OK || threeNozzlePairs.Count == 0) return result;
                 ThreeNozzleRuntimePair pair = threeNozzlePairs[threeNozzlePairIndex];
@@ -352,7 +353,92 @@ namespace UI
         }
 
         /// <param name="allowDeferDown">true：三吸嘴飞拍生效时，下相机推迟到进夹具时飞拍（只在正常预取/提前预取/换料准备时传 true）。</param>
+        // ===== [R9] 模块1先行（原双吸嘴写死的设计：模块2 的取料进度不超过模块1，见原 Act 里 reason=module2_wait）=====
+        /// <summary>
+        /// 开关：模块1先行（默认开）。同一工站的第 k 组，模块2 要等模块1 先取完第 k 组的料才去供料盘取，
+        /// 两臂不再同时抢一个供料盘、也不会同时伸到外侧列。最多等 ThreeNozzleLeadWaitMaxMs，超时照常取（不会卡死）。
+        /// 只在两臂都工作、运行中、非清料时生效；等待期间照常处理让位请求。
+        /// </summary>
+        public static bool ThreeNozzleLeadArmEnabled = true;
+        public static int ThreeNozzleLeadWaitMaxMs = 2500;
+        private static readonly object threeNozzleLeadSync = new object();
+        private static WS threeNozzleLeadStation;
+        private static int threeNozzleLeadPrepared, threeNozzleLeadPairCount = int.MaxValue;
+        private WS threeNozzleEarlyTarget;
+
+        /// <summary>模块1 记录自己在某工站的进度：已取好几组（preparedCount）、本工站共几组（pairCount），-1 表示不改。</summary>
+        private void ThreeNozzleLeadNote(WS station, int preparedCount, int pairCount)
+        {
+            if (id != 0 || station == null) return;
+            lock (threeNozzleLeadSync)
+            {
+                if (!Object.ReferenceEquals(threeNozzleLeadStation, station))
+                {
+                    threeNozzleLeadStation = station;
+                    threeNozzleLeadPrepared = 0;
+                    threeNozzleLeadPairCount = int.MaxValue;
+                }
+                if (preparedCount >= 0) threeNozzleLeadPrepared = Math.Max(threeNozzleLeadPrepared, preparedCount);
+                if (pairCount >= 0) threeNozzleLeadPairCount = pairCount;
+            }
+        }
+
+        /// <summary>这一组属于哪个工站、是本工站第几组（提前预取的是下一工站第 0 组）。</summary>
+        private void ThreeNozzlePairPlace(ThreeNozzleRuntimePair pair, out WS station, out int index)
+        {
+            if (Object.ReferenceEquals(pair, threeNozzleEarly)) { station = threeNozzleEarlyTarget; index = 0; return; }
+            station = threeNozzleSource;
+            index = threeNozzlePairs.IndexOf(pair);
+        }
+
+        private void ThreeNozzleWaitForLeadArm(ref bool quit, WS station, int index)
+        {
+            if (!ThreeNozzleLeadArmEnabled || id != 1 || station == null || index < 0 || ThreeNozzleLeadWaitMaxMs <= 0) return;
+            UpDownLoad lead = COM.UDLoad1;
+            if (lead == null || lead.FindMod == EM_FIN_MOD.NONE || FindMod == EM_FIN_MOD.NONE || VAR.ClearMt || threeNozzleDrain ||
+                ThreeNozzleHasSpecialMode || VAR.gsys_set.status != EM_SYS_STA.RUN) return;
+            Stopwatch watch = null;
+            while (true)
+            {
+                lock (threeNozzleLeadSync)
+                {
+                    if (Object.ReferenceEquals(threeNozzleLeadStation, station) &&
+                        (threeNozzleLeadPrepared >= index + 1 || index >= threeNozzleLeadPairCount)) break;
+                }
+                if (quit || VAR.gsys_set.bquit) return;
+                if (MT.IsDualArmRecoveryGateActive()) break;   // 模块1 在报错/恢复，不等它
+                if (watch == null)
+                {
+                    watch = Stopwatch.StartNew();
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R9] 模块1先行：等模块1 先取{1}第{2}组的料再去供料盘", disc, station.disc, index + 1));
+                }
+                if (watch.ElapsedMilliseconds >= ThreeNozzleLeadWaitMaxMs)
+                {
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R9] 模块1先行：等满 {1}ms 模块1 仍未取{2}第{3}组，本臂照常取料", disc, ThreeNozzleLeadWaitMaxMs, station.disc, index + 1));
+                    return;
+                }
+                EM_RES yieldRes = ProcessPositioningYield(ref quit);   // 等的时候本臂若挡着模块1，照常让位
+                if (yieldRes != EM_RES.OK) return;
+                Thread.Sleep(20);
+            }
+            if (watch != null)
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R9] 模块1先行：模块1 已取{1}第{2}组，本臂开始取料（等了 {3}ms）", disc, station.disc, index + 1, watch.ElapsedMilliseconds));
+        }
+
         private EM_RES ThreeNozzlePreparePair(ref bool quit, ThreeNozzleRuntimePair pair, bool allowDeferDown = false)
+        {
+            WS station; int index;
+            ThreeNozzlePairPlace(pair, out station, out index);
+            bool needsPick = false;
+            for (int slot = 0; slot < 2; slot++)
+                if (pair.Incoming[slot] && !pair.Placed[slot] && pair.Prepared[slot] == null) needsPick = true;
+            if (needsPick) ThreeNozzleWaitForLeadArm(ref quit, station, index);
+            EM_RES result = ThreeNozzlePreparePairCore(ref quit, pair, allowDeferDown);
+            if (result == EM_RES.OK && index >= 0) ThreeNozzleLeadNote(station, index + 1, -1);
+            return result;
+        }
+
+        private EM_RES ThreeNozzlePreparePairCore(ref bool quit, ThreeNozzleRuntimePair pair, bool allowDeferDown = false)
         {
             if (threeNozzleDrain) return ThreeNozzleError("清料禁止预取", true);
             // picktray 只保护供料盘/料盘X轴：选料位、退料、取料、提交料盘数据。
@@ -728,11 +814,13 @@ namespace UI
                 if (skip != null)
                 {
                     VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴: 跳过提前预取（{1}），到位后再预取", disc, skip));
+                    if (threeNozzleEarly == null) ThreeNozzleLeadNote(target, -1, 0);   // [R9] 模块1 不提前取这个工站，模块2 不用等它
                     return EM_RES.OK;
                 }
                 var watch = Stopwatch.StartNew();
                 CtStepLog.SetContext(disc, "提前预取待测(" + target.disc + ")");
                 threeNozzleDrain = false;
+                threeNozzleEarlyTarget = target;   // [R9] 模块1先行要知道这组属于哪个工站
                 threeNozzleEarly = pair;   // 先登记：中途失败时吸嘴上的料仍有身份，不会被当成“无计划持料”
                 EM_RES result = ThreeNozzlePreparePair(ref quit, pair, true);
                 // 一颗都没取到（例如等料盘时被另一臂报错停止打断）就撤销登记，否则续接时会误判

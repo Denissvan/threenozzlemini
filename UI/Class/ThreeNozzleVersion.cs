@@ -8,7 +8,7 @@ namespace UI
     /// </summary>
     public static class ThreeNozzleVersion
     {
-        public const string Current = "R8";
+        public const string Current = "R9";
 
         /// <summary>版本 → 提交号与内容。</summary>
         public static readonly string[] Changes =
@@ -21,6 +21,7 @@ namespace UI
             "R6 c65b93a 飞拍丢帧不死等3秒/料盘取料收臂X",
             "R7 0fe2593 供料盘飞拍短收尾",
             "R8 版本号标记",
+            "R9 模块1先行(模块2取料进度不超过模块1)/取放计时加U轴与轴参数",
         };
 
         public static string Banner

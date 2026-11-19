@@ -44,6 +44,7 @@ namespace UI
             InitializeComponent();
             InitNozzleZCalibrationPage();
             InitFlySpeedPage();
+            InitBackCheckAlarmOption();
             InitWsModShp2ExposureControls();
             InitOkCheckPasswordSwitch();
             tp_setparm_1.Enter += (s, e) => RefreshThreeNozzleCalibration();

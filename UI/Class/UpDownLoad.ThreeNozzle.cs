@@ -938,6 +938,9 @@ namespace UI
                     if (action == ThreeNozzleAction.UnloadFinished && threeNozzlePairIndex == threeNozzlePairs.Count - 1)
                         return EM_RES.OK; // The coordinator owns the final handoff.
                     CtStepLog.SetContext(disc, ThreeNozzleCtLabel(action, pair));
+                    // [R14] 回检不过弹窗开启时，回检不会再自动改去 NG 盘：本组成品取完（放第二颗新料前/离开夹具前）就让成品料盘提前定位
+                    if (action == ThreeNozzleAction.PlaceB || action == ThreeNozzleAction.LeaveFixture)
+                        ThreeNozzleEarlyPrepositionPlaceTray(pair, action);
                     switch (action)
                     {
                         case ThreeNozzleAction.PrepareIncoming: result = ThreeNozzlePreparePair(ref quit, pair, true); break;
@@ -1054,6 +1057,33 @@ namespace UI
             {
                 VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, disc + " 三吸嘴: 成品料盘预定位跳过：" + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// [R14] 系统页“回检不过弹窗(OK盘提前定位)”开启时：本组成品都已在吸嘴上（PlaceB 开始前，或没有 B 时 LeaveFixture 开始前），
+        /// 就让第一颗成品要去的料盘（按测试结果 OK/NG，一般是 OK 盘）先移到落料位，和放第二颗新料、回检飞拍同时进行。
+        /// 原来要等回检做完才定位（回检不过会自动取回放 NG，要先看结果）。落料位按“回检后臂的 X”估算：直接去料盘时为回检那一列，否则 X=0。
+        /// 最后一组由协调线程卸料（锁不能跨线程），不提前。
+        /// </summary>
+        private void ThreeNozzleEarlyPrepositionPlaceTray(ThreeNozzleRuntimePair pair, ThreeNozzleAction action)
+        {
+            if (!ThreeNozzleHardwareConfig.BackCheckAlarmEnabled || threeNozzlePreHeldTray != null) return;
+            if (threeNozzlePairIndex >= threeNozzlePairs.Count - 1) return;
+            if (!list_xt.Any(nz => nz.XtMd != null && nz.XtMd.res >= 0)) return;   // 手上还没有成品
+            double armX = 0;
+            if (ThreeNozzleDirectUnloadEnabled)
+            {
+                armX = ax_x.fcmd_pos;
+                for (int s = 0; s < 2; s++)
+                {
+                    WS.MdDat md = pair.Pockets[s];
+                    if (md != null && pair.Incoming[s] && !pair.Accepted[s]) { armX = md.st_pos[id].x; break; }
+                }
+            }
+            ThreeNozzlePrepositionPlaceTray(armX);
+            if (threeNozzlePreHeldTray != null)
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R14] 成品料盘在{1}前提前定位（按回检后臂 X={2:F3}）",
+                    disc, action == ThreeNozzleAction.PlaceB ? "放第二颗新料" : "回检", armX));
         }
 
         /// <summary>等后台料盘预定位结束。失败不算错：落料时 ZupMove 会再把料盘 X 走到位。</summary>

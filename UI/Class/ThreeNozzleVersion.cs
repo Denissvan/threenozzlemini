@@ -8,7 +8,7 @@ namespace UI
     /// </summary>
     public static class ThreeNozzleVersion
     {
-        public const string Current = "R13";
+        public const string Current = "R14";
 
         /// <summary>版本 → 提交号与内容。</summary>
         public static readonly string[] Changes =
@@ -26,6 +26,7 @@ namespace UI
             "R11 停机后手动移动不再被只在料盘区残留状态拦截",
             "R12 工站视觉校正只校正本模块负责的穴",
             "R13 吸嘴偏移校正页定位工位只允许本模块负责的穴",
+            "R14 回检条码不过弹窗不自动取回NG(系统页开关)/开关开时OK盘在放第二颗新料时就提前定位",
         };
 
         public static string Banner

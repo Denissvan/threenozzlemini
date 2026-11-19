@@ -442,6 +442,10 @@
       <DependentUpon>FrSys.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="FormView\FrSys.BackCheckAlarm.cs">
+      <DependentUpon>FrSys.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Class\ThreeNozzleSequence.cs" />
     <Compile Include="Class\ThreeNozzleCoordinator.cs" />
     <Compile Include="Class\ThreeNozzleDryRun.cs" />

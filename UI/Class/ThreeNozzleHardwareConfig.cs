@@ -36,6 +36,12 @@ namespace UI
         /// <summary>系统页“三吸嘴飞拍”：[Machine] FlyCapture=true。false 时三吸嘴全部定拍（原定拍流程）。</summary>
         public static bool FlyCaptureEnabled { get; private set; }
         public static bool FlyTwoSpeedEnabled { get; private set; }
+        /// <summary>
+        /// [R14] 系统页“回检不过弹窗(OK盘提前定位)”：[Machine] BackCheckAlarm=true。
+        /// 开：放料后回检条码不过时先自动定拍复检一次，仍不过弹窗由员工选择（人工确认继续/取回放NG/停止），不再自动取回放 NG；
+        /// 成品料盘在放第二颗新料时就提前定位（原来要等回检完）。关：原流程。缺省关。
+        /// </summary>
+        public static bool BackCheckAlarmEnabled { get; private set; }
         private static readonly double[] flyLowSpeed = { 250, 250 };
         public static double FlyLowSpeed(int arm)
         {
@@ -170,6 +176,8 @@ namespace UI
                     FlyCaptureEnabled = bool.TryParse(Get(values, "Machine.FlyCapture"), out fly) && fly;
                     bool twoSpeed;
                     FlyTwoSpeedEnabled = bool.TryParse(Get(values, "Machine.FlyTwoSpeed"), out twoSpeed) && twoSpeed;
+                    bool backAlarm;
+                    BackCheckAlarmEnabled = bool.TryParse(Get(values, "Machine.BackCheckAlarm"), out backAlarm) && backAlarm;
                     for (int arm = 0; arm < 2; arm++)
                     {
                         string raw = Get(values, "Machine.FlyLowSpeed" + (arm + 1));
@@ -209,6 +217,7 @@ namespace UI
                     CalibrationConfirmed = false;
                     FlyCaptureEnabled = false;
                     FlyTwoSpeedEnabled = false;
+                    BackCheckAlarmEnabled = false;
                     ConfigurationError = "三吸嘴硬件配置无效：" + ex.Message;
                 }
             }
@@ -280,6 +289,22 @@ namespace UI
             }
             VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("三吸嘴飞拍已{0}，操作员：{1}，已写入 ThreeNozzleHardware.ini",
                 enabled ? "开启" : "关闭（全部定拍）", string.IsNullOrEmpty(operatorName) ? "未知" : operatorName));
+            return true;
+        }
+
+        /// <summary>[R14] 系统页“回检不过弹窗(OK盘提前定位)”：写回 [Machine] BackCheckAlarm 并立即生效。自动运行中不允许修改。</summary>
+        public static bool SetBackCheckAlarm(bool enabled, string operatorName, out string error)
+        {
+            error = null;
+            if (SafetyDebugMode.AutoRunActive) { error = "自动运行中不能切换回检不过弹窗，请先停止运行"; return false; }
+            lock (sync)
+            {
+                Initialize();
+                if (!WriteMachineKey("BackCheckAlarm", enabled ? "true" : "false", out error)) return false;
+                BackCheckAlarmEnabled = enabled;
+            }
+            VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("[R14] 回检不过弹窗(OK盘提前定位)已{0}，操作员：{1}，已写入 ThreeNozzleHardware.ini",
+                enabled ? "开启" : "关闭（回检不过自动取回放NG）", string.IsNullOrEmpty(operatorName) ? "未知" : operatorName));
             return true;
         }
 

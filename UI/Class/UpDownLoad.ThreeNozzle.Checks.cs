@@ -362,9 +362,33 @@ namespace UI
             }
             if (barcodeCheck)
             {
+                // [R14] 回检不过弹窗开关：记下检查前的记录，复检/人工确认时恢复（QrCodeChkShow 不过时会改成 2222/ErrorCode）
+                int savedRes = md.res;
+                string savedCode = md.bardcode;
                 // QrCodeChkShow owns Isaloneset, bGetOrcodOnWs, ErrorCode and 2222.
                 // Pass the live pocket record, never a clone or a nozzle index.
                 res = QrCodeChkShow(barcodeTask, md);
+                if (res == EM_RES.RETRY && ThreeNozzleHardwareConfig.BackCheckAlarmEnabled)
+                {
+                    // 先定拍复检一次（飞拍图条码偶尔读不全），恢复记录后重新比对
+                    string firstCode = barcodeTask == null || barcodeTask.ResData == null ? null : barcodeTask.ResData.BarCode;
+                    md.res = savedRes;
+                    md.bardcode = savedCode;
+                    bool useQrPos = PT_SET.bAddCapQrcode && PT_SET.bBarcodeCamBackEn;
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("{0} [R14] 放料后回检：穴{1} 条码不过（读到={2}，记录={3}），定拍复检一次",
+                        disc, md.Num, string.IsNullOrEmpty(firstCode) ? "无" : firstCode, string.IsNullOrEmpty(savedCode) ? "无" : savedCode));
+                    res = MT.ZupMove(ref bquit, ref ax_x, md.st_pos[id].x, ref ax_y, useQrPos ? md.st_CapQrcodePos[id].y : md.st_pos[id].y);
+                    if (res != EM_RES.OK) return res;
+                    res = upcam.FindTaskTriAndWait(useQrPos ? CONST.WsModQrcode_Shp : CONST.WsModUpFw, Demo);
+                    if (res != EM_RES.OK && res != EM_RES.CAM_ERR) return res;
+                    barcodeTask = upcam.curTask;
+                    if (!useQrPos) positionTask = upcam.curTask;   // 放偏检测也用这张定拍图
+                    res = QrCodeChkShow(barcodeTask, md);
+                    if (res == EM_RES.RETRY)
+                        res = ThreeNozzleBackCheckBarcodeAlarm(ref bquit, xt, md, barcodeTask, savedRes, savedCode);
+                    else if (res == EM_RES.OK)
+                        VAR.msg.AddMsg(Msg.EM_MSGTYPE.NOR, string.Format("{0} [R14] 放料后回检：穴{1} 定拍复检条码通过", disc, md.Num));
+                }
                 if (res != EM_RES.OK)
                 {
                     if (res == EM_RES.RETRY) Ishave3342err = true;
@@ -375,6 +399,56 @@ namespace UI
                 return CheckWsPutOkShow(ref bquit, positionTask,
                     new ST_XYN(md.st_pos[id].x, md.st_pos[id].y, md.Num - 1));
             return EM_RES.OK;
+        }
+
+        /// <summary>
+        /// [R14] 回检条码定拍复检仍不过：弹窗由员工选择，不自动取回放 NG。
+        /// 确定=人工确认继续（物料留在夹具，记录恢复为待测；读到有效条码时按实际读到的绑定），
+        /// 中止=取回放NG（原自动流程，返回 RETRY），取消=停止运行（记录恢复，重新开始后重新回检）。
+        /// </summary>
+        private EM_RES ThreeNozzleBackCheckBarcodeAlarm(ref bool bquit, XT xt, WS.MdDat md, Cam.VisionTask task, int savedRes, string savedCode)
+        {
+            string readCode = task == null || task.ResData == null ? null : task.ResData.BarCode;
+            bool readValid = !string.IsNullOrEmpty(readCode) && readCode.Length >= 3;
+            string wsName = threeNozzleSource == null ? "" : threeNozzleSource.disc;
+            VAR.sys_inf.Set(EM_ALM_STA.WAR_YELLOW_FLASH, VAR.IsChinese ? "回检条码异常!" : "Back check barcode NG", 20, true);
+            MT.ST_WARN warn = new MT.ST_WARN();
+            warning frWarn = new warning();
+            warn.ok_txt = "人工确认继续";
+            warn.abort_txt = "取回放NG";
+            warn.cancle_txt = "停止运行";
+            warn.ws = null;
+            warn.title = "提示:放料后回检条码异常";
+            warn.msg = string.Format("{0}{1}穴{2} 放料后回检条码不过（读到={3}，记录={4}）", disc, wsName, md.Num,
+                readValid ? readCode : "读不到", string.IsNullOrEmpty(savedCode) ? "无" : savedCode);
+            warn.lb_msg = warn.msg + "\r\n已自动定拍复检一次仍不过，请到夹具确认该穴物料：\r\n" +
+                "1.物料正常，按“人工确认继续”：物料留在夹具，成品照常去料盘" + (readValid ? "，条码按本次读到的绑定" : "，条码保留原记录") + "；\r\n" +
+                "2.物料有问题要取出，按“取回放NG”：按原流程取回放 NG 料盘并重新上料；\r\n" +
+                "3.按“停止运行”：停机处理，重新开始后会重新回检该穴。";
+            VAR.msg.AddMsg(Msg.EM_MSGTYPE.ERR, string.Format("{0} [R14] {1}，弹窗等待员工处理", disc, warn.msg));
+            EM_RES pauseRes;
+            DialogResult choice = DisplayWarningWithDualArmPause(frWarn, warn, ERR_ALM.EmErrItem.BarcodeAbnormal, "回检条码异常", out pauseRes);
+            VAR.sys_inf.Set(EM_ALM_STA.NOR_GREEN, VAR.IsChinese ? "运行" : "RUN", 0, true);
+            if (choice == DialogResult.Abort)
+            {
+                // 保留 QrCodeChkShow 写入的 2222/ErrorCode：PlaceOne 照原流程取回放 NG
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("{0} [R14] 员工选择取回放NG：穴{1} 按原流程取回", disc, md.Num));
+                if (pauseRes != EM_RES.OK) return pauseRes;
+                return EM_RES.RETRY;
+            }
+            md.res = savedRes;
+            md.bardcode = savedCode;
+            if (choice == DialogResult.OK)
+            {
+                if (readValid && readCode != savedCode) md.bardcode = readCode;
+                QrCodeChkErrCnt = 0;
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("{0} [R14] 员工人工确认继续：穴{1} 物料留在夹具，条码={2}（原记录={3}）",
+                    disc, md.Num, string.IsNullOrEmpty(md.bardcode) ? "无" : md.bardcode, string.IsNullOrEmpty(savedCode) ? "无" : savedCode));
+                return pauseRes;
+            }
+            VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("{0} [R14] 员工选择停止运行：穴{1} 记录已恢复，重新开始后重新回检", disc, md.Num));
+            if (pauseRes != EM_RES.OK) return pauseRes;
+            return StopBackCheckAndReturnHome(ref bquit, xt, "回检条码异常");
         }
     }
 }

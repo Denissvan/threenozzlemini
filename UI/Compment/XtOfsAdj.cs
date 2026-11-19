@@ -90,6 +90,9 @@ namespace UI.Compment
             XT selected = COM.ListXT.Find(item => item.id == selectedId);
             if (selected == null || selected.Parent == null) return;
             xt = selected;
+            // [R13] 工位编号不属于本模块时，自动换成本模块的第一个穴（默认 1 号是模块2 的穴）
+            int ownNum = FirstOwnPocketNum(xt.Parent);
+            if (ownNum > 0 && !PocketBelongsToArm(xt.Parent, (int)nud_wsnum.Value)) nud_wsnum.Value = ownNum;
 
             if (rbtn_palce.Checked)
             {
@@ -622,6 +625,28 @@ namespace UI.Compment
              
         }
 
+        /// <summary>[R13] 穴号 num（1 起）是否由这个模块负责：与 ThreeNozzleEnsurePlan 相同，LOW 管 (num-1)%8&lt;4，HIGH 管 ≥4。</summary>
+        private static bool PocketBelongsToArm(UpDownLoad arm, int num)
+        {
+            if (arm == null || num < 1) return true;
+            int k = (num - 1) % 8;
+            return arm.FindMod == UpDownLoad.EM_FIN_MOD.LOW ? k < 4 : arm.FindMod == UpDownLoad.EM_FIN_MOD.HIGH ? k >= 4 : true;
+        }
+
+        private static int FirstOwnPocketNum(UpDownLoad arm)
+        {
+            for (int num = 1; num <= 16; num++) if (PocketBelongsToArm(arm, num)) return num;
+            return -1;
+        }
+
+        private static string OwnPocketText(UpDownLoad arm)
+        {
+            if (arm == null) return "-";
+            if (arm.FindMod == UpDownLoad.EM_FIN_MOD.LOW) return "1-4、9-12";
+            if (arm.FindMod == UpDownLoad.EM_FIN_MOD.HIGH) return "5-8、13-16";
+            return "全部";
+        }
+
         private void btn_wsgoto_Click(object sender, EventArgs e)
         {
             WS ws = Turntable.GetWSOnFeedPos;
@@ -635,6 +660,16 @@ namespace UI.Compment
             if (MdDat == null)
             {
                 MessageBox.Show(VAR.IsChinese ? string.Format("{0}没有找到编号为{1}的工位",ws.disc, (int)nud_wsnum.Value): string.Format("No station number {1} was found on the {0}\r\n{0}没有找到编号为{1}的工位", ws.disc, (int)nud_wsnum.Value));
+                return;
+            }
+            // [R13] 三吸嘴按 FindMod 分工：另一模块负责的穴，本模块那套坐标是阵列延伸出来的（例如模块1 穴1 X=343.189），
+            // 到那里拍不到穴（19 号 17:50 整张白图），不允许定位
+            if (!PocketBelongsToArm(xt.Parent, MdDat.Num))
+            {
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("[R13] {0} 定位{1}穴{2}被拒绝：该穴由另一模块负责（本模块 FindMod={3}），坐标 X={4:F3} 是阵列延伸值",
+                    xt.Parent.disc, ws.disc, MdDat.Num, xt.Parent.FindMod, MdDat.st_pos[xt.Parent.id].x));
+                MessageBox.Show(string.Format("{0} 不负责{1}穴{2}（该穴由另一模块上下料），\r\n它在这个穴的坐标是阵列延伸出来的，到那里拍不到穴位。\r\n\r\n请改用本模块负责的穴：{3}",
+                    xt.Parent.disc, ws.disc, MdDat.Num, OwnPocketText(xt.Parent)), "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
           EM_RES  res = MT.ZupMove(ref VAR.gsys_set.bquit, ref xt.ax_x, MdDat.st_pos[xt.Parent.id].x, ref xt.ax_y, MdDat.st_pos[xt.Parent.id].y,true);

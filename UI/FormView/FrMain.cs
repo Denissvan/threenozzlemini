@@ -647,6 +647,7 @@ namespace UI
                 Utility.CatchDiskAndDeleteFile(null, Path.GetFullPath("..") + "\\product\\" + VAR.gsys_set.cur_product_name + "\\Image\\" + cam.mName + "\\", -5, false);
             }
             VAR.msg.AddMsg(Msg.EM_MSGTYPE.NOR, VAR.IsChinese ? ("设备当前版本:" + lbVer.Text) : (" Device current version:        (设备当前版本:)" + lbVer.Text));
+            VAR.msg.AddMsg(Msg.EM_MSGTYPE.NOR, ThreeNozzleVersion.Banner);
             //tooltip
             tlp_Show.Active = true;
             //tlp_Show.AutoPopDelay = 5000;
@@ -879,6 +880,7 @@ namespace UI
                 {
                     bEditionUpdate = true;
                     VAR.msg.AddMsg(Msg.EM_MSGTYPE.NOR, VAR.IsChinese ? ("设备当前版本:" + lbVer.Text) : ("Device current version:        (设备当前版本:)" + lbVer.Text));
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.NOR, ThreeNozzleVersion.Banner);
                 }
                else if (DateTime.Now.Hour % 2 != 1&& bEditionUpdate==true)
                 {

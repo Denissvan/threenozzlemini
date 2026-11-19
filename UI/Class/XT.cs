@@ -1058,7 +1058,7 @@ namespace UI
                 long end = t.Now;
                 Func<long, long, string> span = (a, b) => a < 0 || b < 0 ? "-" : (b - a).ToString();
                 VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(
-                    "{0} 取放计时[{1}] 平移={2}ms Z下={3}ms 底部={4}ms Z上={5}ms 合计={6}ms；到位后等编码器 X+{7}ms Y+{8}ms，到位残差 X={9:F3} Y={10:F3}；结果={11}",
+                    "{0} [R1] 取放计时[{1}] 平移={2}ms Z下={3}ms 底部={4}ms Z上={5}ms 合计={6}ms；到位后等编码器 X+{7}ms Y+{8}ms，到位残差 X={9:F3} Y={10:F3}；结果={11}",
                     disc, kind, t.Move < 0 ? "-" : t.Move.ToString(), span(t.Move, t.Down), span(t.Down, t.Bottom),
                     span(t.Bottom < 0 ? t.Down : t.Bottom, end), end, t.SettleX, t.SettleY, t.LagX, t.LagY, result));
             }

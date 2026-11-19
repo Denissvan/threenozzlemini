@@ -7685,7 +7685,7 @@ RECHECKAGAIN:
                 WS ws = Turntable.GetWSOnFeedPos;
                 var udTaskWatch = System.Diagnostics.Stopwatch.StartNew();
                 LastUdTaskMs = 0;
-                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("UpDnPathTrace RunUdTask start ud={0}, ws={1}, FindMod={2}, ClearMt={3}, bquit={4}, axXHome={5}, axXAlm={6}, axXPos={7:F3}, axYPos={8:F3}",
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("UpDnPathTrace RunUdTask start [" + ThreeNozzleVersion.Current + "] ud={0}, ws={1}, FindMod={2}, ClearMt={3}, bquit={4}, axXHome={5}, axXAlm={6}, axXPos={7:F3}, axYPos={8:F3}",
                     disc, ws == null ? "NULL" : ws.disc, FindMod, VAR.ClearMt, bquit, ax_x.home_status, ax_x.isALM, ax_x.fenc_pos, ax_y.fenc_pos));
                 bool alreadyExchanged = ThreeNozzleCoordinator.IsArmExchangeCompleted(ws, id);
                 res = alreadyExchanged ? EM_RES.OK : ThreeNozzleCoordinator.WaitPrefetch(ws, id);

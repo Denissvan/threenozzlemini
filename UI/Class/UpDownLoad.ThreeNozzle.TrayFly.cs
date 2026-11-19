@@ -118,7 +118,7 @@ namespace UI
                         probe.a >= trayX.sln && probe.a <= trayX.slp)
                     {
                         VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(
-                            "{0} 供料盘飞拍: 对臂在 X={1:F3}，本臂夹具列 X={2:F3} 会超合计上限 {3:F3}，臂改在 X={4:F3} 取料（料盘X={5:F3}），不原地等对臂",
+                            "{0} [R6] 供料盘飞拍: 对臂在 X={1:F3}，本臂夹具列 X={2:F3} 会超合计上限 {3:F3}，臂改在 X={4:F3} 取料（料盘X={5:F3}），不原地等对臂",
                             disc, otherX.fenc_pos, wsX, MT.EffectiveDualArmCombinedExtentLimit, yieldX, probe.a));
                         wsX = yieldX;
                     }
@@ -218,13 +218,13 @@ namespace UI
                     endShort = increasing ? lastTrig + ThreeNozzleTrayMinRunOut : lastTrig - ThreeNozzleTrayMinRunOut;
                 endY = endShort;
                 VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(
-                    "{0} 供料盘飞拍：短收尾，终点 Y={1:F3}（最后触发点 {2:F3}{3}），{4}",
+                    "{0} [R7] 供料盘飞拍：短收尾，终点 Y={1:F3}（最后触发点 {2:F3}{3}），{4}",
                     disc, endY, lastTrig, FlyFinite(firstPickY) ? string.Format("，第一颗取料位 Y={0:F3}", firstPickY) : "",
                     increasing && FlyFinite(firstPickY) && Math.Abs(endY - firstPickY) < 0.01 ? "飞完直接在取料位，不折返" : "飞完折返去取料"));
             }
             if (shortRunUp)
                 VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(
-                    "{0} 供料盘飞拍：短助跑，从 Y={1:F3} 起飞（当前 Y={2:F3}，{3}，助跑 {4:F1}mm，第一个触发点速度约 {5:F0}mm/s，补偿按速度缩放）",
+                    "{0} [R3] 供料盘飞拍：短助跑，从 Y={1:F3} 起飞（当前 Y={2:F3}，{3}，助跑 {4:F1}mm，第一个触发点速度约 {5:F0}mm/s，补偿按速度缩放）",
                     disc, startY, curY, increasing ? "Y 增大方向" : "Y 减小方向", Math.Abs(firstTrig - startY),
                     ThreeNozzleSpeedAfterRunUp(Math.Abs(firstTrig - startY))));
             if (startY < ax_y.sln || startY > ax_y.slp || endY < ax_y.sln || endY > ax_y.slp)

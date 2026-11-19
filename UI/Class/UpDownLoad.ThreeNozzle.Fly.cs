@@ -261,7 +261,7 @@ namespace UI
             double tay = ax_y.tacc;
             if (tay > 10) tay /= 1000.0;
             double ty = ThreeNozzleTimeFromRest(Math.Abs(firstUp - curY), vy, FlyFinite(tay) && tay > 0 ? tay : 0);
-            why = string.Format("X 约 {0:F2}s 到位，Y 约 {1:F2}s 到第一个上相机触发点", tx, ty);
+            why = string.Format("[R5] X 约 {0:F2}s 到位，Y 约 {1:F2}s 到第一个上相机触发点", tx, ty);
             return tx + 0.15 < ty;
         }
 
@@ -315,7 +315,7 @@ namespace UI
                     idle += 10;
                     if (ThreeNozzleFlyLostFrameGraceMs > 0 && input < list.Count && done >= input && idle >= ThreeNozzleFlyLostFrameGraceMs)
                     {
-                        camera.FlyDiagnosticRecord(string.Format("判定丢帧：已收 {0}/{1} 张，{2}ms 无新图，提前结束等待（共等 {3}ms）",
+                        camera.FlyDiagnosticRecord(string.Format("[R6] 判定丢帧：已收 {0}/{1} 张，{2}ms 无新图，提前结束等待（共等 {3}ms）",
                             input, list.Count, idle, waited + 10));
                         break;
                     }
@@ -458,7 +458,7 @@ namespace UI
                 {
                     double clamped = allowed > 0 ? Math.Sign(parkX) * allowed : 0;
                     VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(
-                        "{0} 三吸嘴飞拍: 停车列 X={1:F3} 会挡住另一臂（另一臂最远工作 X 约 {2:F3}，来自 {5}，合计上限 {3:F3}），改停 X={4:F3}",
+                        "{0} [R5] 三吸嘴飞拍: 停车列 X={1:F3} 会挡住另一臂（另一臂最远工作 X 约 {2:F3}，来自 {5}，合计上限 {3:F3}），改停 X={4:F3}",
                         disc, parkX, otherReach, MT.EffectiveDualArmCombinedExtentLimit, clamped, reachSource));
                     parkX = clamped;
                 }
@@ -623,7 +623,7 @@ namespace UI
                     Enumerable.Range(0, 2).All(s => placeShot[s] == null ||
                         (pair.Pockets[s] != null && Math.Abs(nextX - pair.Pockets[s].st_pos[id].x) <= ThreeNozzlePrePlaceMaxColumnDx)))
                 {
-                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴飞拍[进夹具] 按第一个取料位 X={1:F3} 飞（拍照列 X={2:F3}，差 {3:F3}mm），到位后不再横移",
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R1] 三吸嘴飞拍[进夹具] 按第一个取料位 X={1:F3} 飞（拍照列 X={2:F3}，差 {3:F3}mm），到位后不再横移",
                         disc, nextX, x, nextX - x));
                     foreach (ThreeNozzleFlyShot shot in placeShot) if (shot != null) shot.X = nextX;
                     x = nextX;

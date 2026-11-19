@@ -435,6 +435,7 @@
     <Compile Include="Class\UpDownLoad.ThreeNozzle.VacuumRecovery.cs" />
     <Compile Include="Class\UpDownLoad.ThreeNozzle.TrayVision.cs" />
     <Compile Include="Class\ThreeNozzleHardwareConfig.cs" />
+    <Compile Include="Class\ThreeNozzleVersion.cs" />
     <Compile Include="Class\FlyTwoSpeedPlan.cs" />
     <Compile Include="Class\UpDownLoad.ThreeNozzle.FlySpeed.cs" />
     <Compile Include="FormView\FrSys.FlySpeed.cs">

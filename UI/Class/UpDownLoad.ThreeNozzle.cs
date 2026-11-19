@@ -1084,13 +1084,13 @@ namespace UI
                     EM_RES r = MT.RaiseAllArmZ(ref quit, id);
                     if (r != EM_RES.OK) return r;
                     double y = Math.Min(ax_y.fcmd_pos, waitY);
-                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴: 最后一组离开夹具，不回 X=0，X 留在 {1:F3}，Y {2:F3}→{3:F3}，尾部卸料直接去料仓",
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R2] 三吸嘴: 最后一组离开夹具，不回 X=0，X 留在 {1:F3}，Y {2:F3}→{3:F3}，尾部卸料直接去料仓",
                         disc, ax_x.fcmd_pos, ax_y.fcmd_pos, y));
                     r = MT.ZupMove(ref quit, ref ax_y, y, ref ax_u1, 0, ref ax_u2, 0);
                     if (r != EM_RES.OK) return r;
                     return MT.Move(ref quit, ref list_xt[2].ax_u, 0);
                 }
-                VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("{0} 三吸嘴: 等待位 Y={1:F3} / SafeTrayMaxY={2:F3} 不可用，最后一组照旧回零", disc, waitY, safeY));
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("{0} [R2] 三吸嘴: 等待位 Y={1:F3} / SafeTrayMaxY={2:F3} 不可用，最后一组照旧回零", disc, waitY, safeY));
             }
             return GoZero(ref quit);
         }
@@ -1514,7 +1514,7 @@ namespace UI
                 TrayBox tray;
                 double x, y;
                 if (!ThreeNozzleEstimatePlaceXY(xt, out tray, out x, out y)) return;
-                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴: {1}{4}，先到落料位上方等 X={2:F3} Y={3:F3}",
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R2] 三吸嘴: {1}{4}，先到落料位上方等 X={2:F3} Y={3:F3}",
                     disc, tray.disc, x, y, why));
                 EM_RES r = MT.ZupMove(ref quit, ref ax_x, x, ref ax_y, y);
                 if (r != EM_RES.OK)
@@ -1578,7 +1578,7 @@ namespace UI
                 tray.trayActionRunning = true;   // 先占住：任务真正开始前，对臂也会看到正在换盘而等待，不会重复换
                 bool demo = Demo;
                 string actor = disc;
-                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴: {1}已放满，立即后台换盘（不等下一颗料要落时再换）", actor, tray.disc));
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R4] 三吸嘴: {1}已放满，立即后台换盘（不等下一颗料要落时再换）", actor, tray.disc));
                 System.Threading.Tasks.Task.Run(() =>
                 {
                     EM_RES r = EM_RES.ERR;
@@ -1590,20 +1590,20 @@ namespace UI
                     }
                     catch (Exception ex)
                     {
-                        VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("{0} 三吸嘴: {1}后台换盘异常：{2}", actor, tray.disc, ex.Message));
+                        VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("{0} [R4] 三吸嘴: {1}后台换盘异常：{2}", actor, tray.disc, ex.Message));
                     }
                     finally
                     {
                         tray.trayActionRunning = false;   // Tray_Action 自己也会清；异常时这里兜底
                     }
                     VAR.msg.AddMsg(r == EM_RES.OK ? Msg.EM_MSGTYPE.DBG : Msg.EM_MSGTYPE.WAR, string.Format(
-                        "{0} 三吸嘴: {1}后台换盘结束（{2}）{3}", actor, tray.disc, r, r == EM_RES.OK ? "" : "，下一次落料时按原流程再换"));
+                        "{0} [R4] 三吸嘴: {1}后台换盘结束（{2}）{3}", actor, tray.disc, r, r == EM_RES.OK ? "" : "，下一次落料时按原流程再换"));
                 });
             }
             catch (Exception ex)
             {
                 tray.trayActionRunning = false;
-                VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, disc + " 三吸嘴: 满盘后台换盘未启动：" + ex.Message);
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, disc + " [R4] 三吸嘴: 满盘后台换盘未启动：" + ex.Message);
             }
         }
 

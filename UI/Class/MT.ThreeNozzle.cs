@@ -129,10 +129,26 @@ namespace UI
         }
         #endregion
 
+        private static readonly bool[] trayOnlyManualBypassLogged = new bool[2];
+
         public static EM_RES CheckThreeNozzleTrayMove(AXIS axis, double target)
         {
             int owner = GetLateralArmId(axis);
             if (owner < 0 || !ThreeNozzleCoordinator.IsTrayOnlyPhase(owner)) return EM_RES.OK;
+            // [R11] 停机后（不在运行、上下料线程都已结束）“只在料盘区”是上一轮残留的状态，不再限制手动示教/校正/点动；
+            // 19 号 16:01:28 停机后点模块2 移到工站拍照位 Y=972.982 被这里拦下（定位失败），只能先回零。
+            // 再按开始时会先自动复位（抬Z→回安全位→对账），运行中照旧严格限制。
+            if (VAR.gsys_set.status != EM_SYS_STA.RUN && !BaseAction.bRuning && ThreeNozzleCoordinator.WorkersStopped)
+            {
+                if (!trayOnlyManualBypassLogged[owner])
+                {
+                    trayOnlyManualBypassLogged[owner] = true;
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("[R11] 臂{0} 停机中手动移动：忽略上一轮残留的“只在料盘区”限制（运行中仍限制 Y≤{1:F3}）",
+                        owner + 1, ThreeNozzleHardwareConfig.SafeTrayMaxY(owner)));
+                }
+                return EM_RES.OK;
+            }
+            trayOnlyManualBypassLogged[owner] = false;
             double boundary = ThreeNozzleHardwareConfig.SafeTrayMaxY(owner);
             AXIS y = owner == 0 ? AXIS_UDL1_Y : AXIS_UDL2_Y;
             double targetY = axis.m_id == y.m_id ? target : y.fenc_pos;

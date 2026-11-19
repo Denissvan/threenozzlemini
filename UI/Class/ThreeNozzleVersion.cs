@@ -8,7 +8,7 @@ namespace UI
     /// </summary>
     public static class ThreeNozzleVersion
     {
-        public const string Current = "R10";
+        public const string Current = "R11";
 
         /// <summary>版本 → 提交号与内容。</summary>
         public static readonly string[] Changes =
@@ -23,6 +23,7 @@ namespace UI
             "R8 版本号标记",
             "R9 模块1先行(模块2取料进度不超过模块1)/取放计时加U轴与轴参数",
             "R10 主界面版本号显示三吸嘴版本",
+            "R11 停机后手动移动不再被只在料盘区残留状态拦截",
         };
 
         public static string Banner

@@ -112,10 +112,10 @@ namespace UI
                 {
                     double yieldX = Math.Sign(wsX) * allowed;
                     ST_XYZA probe = camRef.CaliPosAt(positions[0].Pos[id], yieldX, 0);
-                    AXIS trayX = traybox_fd.ax_x;
+                    AXIS feedTrayAxis = traybox_fd.ax_x;
                     // CaliPosAt 在料盘 X 会小于 0 时把差额加回臂 X：那样臂还是伸出去，等于没让，照旧等
-                    if (trayX != null && FlyFinite(probe.a) && probe.a > 0.5 && Math.Abs(probe.x - yieldX) < 0.01 &&
-                        probe.a >= trayX.sln && probe.a <= trayX.slp)
+                    if (feedTrayAxis != null && FlyFinite(probe.a) && probe.a > 0.5 && Math.Abs(probe.x - yieldX) < 0.01 &&
+                        probe.a >= feedTrayAxis.sln && probe.a <= feedTrayAxis.slp)
                     {
                         VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(
                             "{0} [R6] 供料盘飞拍: 对臂在 X={1:F3}，本臂夹具列 X={2:F3} 会超合计上限 {3:F3}，臂改在 X={4:F3} 取料（料盘X={5:F3}），不原地等对臂",

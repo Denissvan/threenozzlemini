@@ -511,7 +511,7 @@ namespace UI
             DRpt.Report_Status(DReport.EmStatus.StartUp, DReport.EmHareware.Null, DReport.EmStatus.StartUp.GetDescription(VAR.IsChinese));
             Msg.secsManager.Send(new BaseInfo() { Id = 1, Value = Convert.ToInt32(DReport.EmStatus.StartUp).ToString() });
             Msg.secsManager.Send(new BaseInfo() { Id = 1 }, 2);
-            lbVer.Text = string.Format("WLTmini2   V{0}", Assembly.GetExecutingAssembly().GetName().Version);
+            lbVer.Text = string.Format("WLTmini2   V{0} 三吸嘴{1}", Assembly.GetExecutingAssembly().GetName().Version, ThreeNozzleVersion.Current);   // [R10] 主界面显示三吸嘴版本号
             //load sys config
             VAR.gsys_set.LoadSysCfg();
             VAR.gsys_set.status = EM_SYS_STA.UNKOWN;

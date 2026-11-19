@@ -748,6 +748,21 @@ namespace UI
         // 每个模组记录：校正前拍照位、校正后拍照位和变化量；失败时记录具体原因（来自 Cam.LastCenterFailReason）。
         private readonly Dictionary<int, ST_XYZ> caliStartPos = new Dictionary<int, ST_XYZ>();
 
+        /// <summary>
+        /// [R12] 三吸嘴按 FindMod 分工（与 ThreeNozzleEnsurePlan 相同：LOW 管 序号%8&lt;4，HIGH 管 序号%8≥4），
+        /// 视觉校正只走本模块负责的穴。原来按双吸嘴逐个走全部 16 穴，另一半用的是阵列延伸出来的坐标
+        /// （例如模块1 穴1 X=343.189），19 号 17:50 模块1 到那里拍出来整张白图（平均灰度 254.9），视觉 NG，第一个穴就中止。
+        /// </summary>
+        private bool CaliPocketBelongsToArm(int armId, int idx)
+        {
+            UpDownLoad arm = COM.List_UDLoad[armId];
+            if (arm == null) return true;
+            bool mine = arm.FindMod == UpDownLoad.EM_FIN_MOD.LOW ? idx % 8 < 4
+                : arm.FindMod == UpDownLoad.EM_FIN_MOD.HIGH ? idx % 8 >= 4 : true;
+            if (!mine) CaliLog(Msg.EM_MSGTYPE.DBG, armId, idx, string.Format("[R12] 跳过：属于另一模块（本模块 FindMod={0}）", arm.FindMod));
+            return mine;
+        }
+
         private void CaliLog(Msg.EM_MSGTYPE type, int armId, int idx, string text)
         {
             VAR.msg.AddMsg(type, string.Format("[夹具校正] {0} {1} 模组{2}: {3}",
@@ -800,6 +815,7 @@ namespace UI
                             {
                                 int idx = row * 4 + col;
                                 if (!list_temp.ElementAt(idx).benable) continue;//gy0123增加屏蔽工位不校正
+                                if (!CaliPocketBelongsToArm(id, idx)) continue;   // [R12] 只校正本模块负责的穴
                                 CaliLogStart(id, idx, list_temp.ElementAt(idx));
                                 res = MT.ZupMove(ref VAR.gsys_set.bquit, ref COM.List_UDLoad[id].ax_x, list_temp.ElementAt(idx).st_pos[id].x, ref COM.List_UDLoad[id].ax_y, list_temp.ElementAt(idx).st_pos[id].y);
                                 if (res != EM_RES.OK)
@@ -844,6 +860,7 @@ namespace UI
                             {
                                 int idx = row * 8 + col;
                                 if (!list_temp.ElementAt(row * 8 + col).benable) continue;//gy0123增加屏蔽工位不校正
+                                if (!CaliPocketBelongsToArm(id, idx)) continue;   // [R12] 只校正本模块负责的穴
 
                                 if (!PT_SET.issmall)
                                 {

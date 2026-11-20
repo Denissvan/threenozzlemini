@@ -1204,7 +1204,8 @@ namespace UI
                         // VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, "打开"+ disc+"真空");
                         for (int i = 1; i < 3; i++)
                         {
-                            res = cy_zk.SetOn(ref bquit, 500);
+                            // [R20] 每次等真空的时间可在调试模式设置（原写死 500ms）
+                            res = cy_zk.SetOn(ref bquit, ThreeNozzleHardwareConfig.PickVacuumWaitMs);
                             if (res == EM_RES.OK || !DwMov) break;
                             else if (res == EM_RES.TIMEOUT)
                             {
@@ -1214,6 +1215,8 @@ namespace UI
 
                         }
 
+                        // [R20] 真空到位后再保持一会儿再抬（缺省 0 = 原来到位立即抬）
+                        if (res == EM_RES.OK && ThreeNozzleHardwareConfig.PickHoldMs > 0) Thread.Sleep(ThreeNozzleHardwareConfig.PickHoldMs);
                         if (res != EM_RES.OK)
                         {
                             if (!cy_zk.isONByChkSen)
@@ -1238,15 +1241,16 @@ namespace UI
                         // VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, gpio_pzk.disc+"打开");
                         gpio_pzk.SetOn();
                         //Application.DoEvents();
-                        Thread.Sleep(50);
+                        // [R20] 原来固定 Sleep(50)，防带起时再 Sleep(放料延时-40)；不防带起时就是固定 50（R15 开放的“不防带起”那项原来只用在空跑 Demo 分支）。
+                        // 现在：防带起=等“夹具放料延时”整数，不防带起=等“夹具放料延时(不防带起)”，都可以设到 0。
                         if (bPasteUp)
                         {
-                            // [R15] 下限保护：放料延时小于 40 时原来会 Sleep(负数) 异常/无限等待
-                            Thread.Sleep(Math.Max(0, PT_SET.PlaceDly - 40));
+                            Thread.Sleep(Math.Max(0, PT_SET.PlaceDly));
                             res = MT.Move(ref bquit, ref ax_z, st_pos.z - ZApproachDirection);
                            // if (res != EM_RES.OK) { goto CleanupComplete; }
                             Thread.Sleep(Math.Max(0, PT_SET.MovUpDly));
                         }
+                        else Thread.Sleep(ThreeNozzleHardwareConfig.FixturePlaceDelayMs);
                         //// VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, gpio_pzk.disc + "关闭");
                         //gpio_pzk.SetOff();
 
@@ -1265,7 +1269,7 @@ namespace UI
 
                         cy_zk.SetOff();
                         gpio_pzk.SetOn();
-                        Thread.Sleep(ThreeNozzleHardwareConfig.FixturePlaceDelayMs);   // [R15] 原写死 60，调试模式可改
+                        Thread.Sleep(60);   // 空跑(Demo)分支，保持原值
 
                     }
                 }
@@ -1425,7 +1429,8 @@ namespace UI
                 for (int i = 1; i < 3; i++)
                 {
                     // 空跑不检查真空：不等真空感应，避免每次取料都报“等待 ON 超时”误导排查
-                    res = IsDemo ? cy_zk.SetOn(ref bquit, 0) : cy_zk.SetOn(ref bquit, bcheck ? 500 : 100);
+                    res = IsDemo ? cy_zk.SetOn(ref bquit, 0) : cy_zk.SetOn(ref bquit, bcheck ? ThreeNozzleHardwareConfig.PickVacuumWaitMs : 100);   // [R20]
+                    if (res == EM_RES.OK && !IsDemo && ThreeNozzleHardwareConfig.PickHoldMs > 0) Thread.Sleep(ThreeNozzleHardwareConfig.PickHoldMs);
                     if (res == EM_RES.OK || !DwMov ||(!bcheck && res == EM_RES.TIMEOUT)) break;
                     else if (res == EM_RES.TIMEOUT)
                     {

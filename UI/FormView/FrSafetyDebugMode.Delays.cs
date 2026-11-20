@@ -13,7 +13,7 @@ namespace UI
     {
         private GroupBox grp_delays;
         private CheckBox chk_dly_pasteup;
-        private NumericUpDown nud_dly_place, nud_dly_movup, nud_dly_fixture, nud_dly_tray;
+        private NumericUpDown nud_dly_place, nud_dly_movup, nud_dly_fixture, nud_dly_tray, nud_pick_wait, nud_pick_hold;
         private Label lbl_dly_state;
         private CheckBox chk_fast_issue;
 
@@ -22,36 +22,40 @@ namespace UI
             ThreeNozzleHardwareConfig.Initialize();
             ClientSize = new Size(Math.Max(ClientSize.Width, 900), ClientSize.Height);
             Font f = new Font("Microsoft YaHei UI", 10.5F);
-            grp_delays = new GroupBox { Text = "取放延时（应用后立即生效并保存）", Location = new Point(572, 12), Size = new Size(316, 500), Font = f };
+            grp_delays = new GroupBox { Text = "取放延时（应用后立即生效并保存）", Location = new Point(572, 12), Size = new Size(316, 600), Font = f };
             Controls.Add(grp_delays);
 
             int y = 30;
             chk_dly_pasteup = new CheckBox { Text = "夹具放料防带起（放后先抬 1mm 再等）", Location = new Point(12, y), AutoSize = true };
             grp_delays.Controls.Add(chk_dly_pasteup);
             y += 34;
-            nud_dly_place = AddDelayRow("夹具放料延时(防带起)", ref y, 40, 1000);
+            nud_dly_place = AddDelayRow("夹具放料延时(防带起)", ref y, 0, 1000);
             nud_dly_movup = AddDelayRow("夹具提起延时(防带起)", ref y, 0, 500);
             nud_dly_fixture = AddDelayRow("夹具放料延时(不防带起)", ref y, ThreeNozzleHardwareConfig.PlaceDelayMin, ThreeNozzleHardwareConfig.PlaceDelayMax);
             nud_dly_tray = AddDelayRow("料盘放料延时", ref y, ThreeNozzleHardwareConfig.PlaceDelayMin, ThreeNozzleHardwareConfig.PlaceDelayMax);
+            // [R20] 取料（料盘、夹具通用）
+            nud_pick_wait = AddDelayRow("取料等真空(每次最长)", ref y, ThreeNozzleHardwareConfig.PickVacuumWaitMin, ThreeNozzleHardwareConfig.PickVacuumWaitMax);
+            nud_pick_hold = AddDelayRow("取料吸到后保持", ref y, 0, ThreeNozzleHardwareConfig.PickHoldMax);
 
             var note = new Label
             {
-                Location = new Point(12, y), Size = new Size(296, 92), ForeColor = Color.DimGray,
+                Location = new Point(12, y), Size = new Size(296, 120), ForeColor = Color.DimGray,
                 Font = new Font("Microsoft YaHei UI", 9F),
-                Text = "单位 ms。防带起打开时：破真空后等待≈放料延时+10，再抬 1mm，再等提起延时。\r\n" +
-                       "防带起关闭时用“不防带起”那一项。延时太小可能把料带起或放不平，改完请观察几轮。\r\n" +
-                       "运行中也可应用，从下一次放料起生效。"
+                Text = "单位 ms，放料延时可设 0。防带起开：破真空后等放料延时，抬 1mm，再等提起延时；关：等“不防带起”那项。\r\n" +
+                       "取料：真空到位立即抬（可加保持）；等不到真空时 Z 再压一点再等一次。改完请观察几轮。\r\n" +
+                       "运行中也可应用，下一次取放起生效。"
             };
             grp_delays.Controls.Add(note);
-            y += 96;
+            y += 124;
 
             var btnApply = new Button { Text = "应用取放延时", Location = new Point(12, y), Size = new Size(140, 36) };
             var btnDefault = new Button { Text = "恢复默认值", Location = new Point(166, y), Size = new Size(140, 36) };
             btnApply.Click += (s, e) => ApplyPickPlaceDelays();
             btnDefault.Click += (s, e) =>
             {
-                nud_dly_place.Value = 50; nud_dly_movup.Value = 50; nud_dly_fixture.Value = 60; nud_dly_tray.Value = 50;
-                lbl_dly_state.Text = "已填入默认值（50/50/60/50），点“应用取放延时”才生效";
+                nud_dly_place.Value = 50; nud_dly_movup.Value = 50; nud_dly_fixture.Value = 50; nud_dly_tray.Value = 50;
+                nud_pick_wait.Value = 500; nud_pick_hold.Value = 0;
+                lbl_dly_state.Text = "已填入默认值（放料 50/50/50/50，取料 500/0），点“应用取放延时”才生效";
                 lbl_dly_state.ForeColor = Color.DarkOrange;
             };
             grp_delays.Controls.Add(btnApply);
@@ -107,15 +111,18 @@ namespace UI
             nud_dly_movup.Value = Clamp(nud_dly_movup, PT_SET.MovUpDly);
             nud_dly_fixture.Value = Clamp(nud_dly_fixture, ThreeNozzleHardwareConfig.FixturePlaceDelayMs);
             nud_dly_tray.Value = Clamp(nud_dly_tray, ThreeNozzleHardwareConfig.TrayPlaceDelayMs);
+            nud_pick_wait.Value = Clamp(nud_pick_wait, ThreeNozzleHardwareConfig.PickVacuumWaitMs);
+            nud_pick_hold.Value = Clamp(nud_pick_hold, ThreeNozzleHardwareConfig.PickHoldMs);
             lbl_dly_state.Text = DelaySummary("当前生效");
             lbl_dly_state.ForeColor = Color.Green;
         }
 
         private static string DelaySummary(string head)
         {
-            return string.Format("{0}：防带起={1}，夹具放料={2}/提起={3}，不防带起={4}，料盘放料={5}",
+            return string.Format("{0}：防带起={1}，夹具放料={2}/提起={3}，不防带起={4}，料盘放料={5}，取料等真空={6}/保持={7}",
                 head, PT_SET.bModPasteUp ? "开" : "关", PT_SET.PlaceDly, PT_SET.MovUpDly,
-                ThreeNozzleHardwareConfig.FixturePlaceDelayMs, ThreeNozzleHardwareConfig.TrayPlaceDelayMs);
+                ThreeNozzleHardwareConfig.FixturePlaceDelayMs, ThreeNozzleHardwareConfig.TrayPlaceDelayMs,
+                ThreeNozzleHardwareConfig.PickVacuumWaitMs, ThreeNozzleHardwareConfig.PickHoldMs);
         }
 
         private void ApplyPickPlaceDelays()
@@ -129,6 +136,7 @@ namespace UI
             PT_SET.MovUpDly = (int)nud_dly_movup.Value;
             string error;
             bool hwOk = ThreeNozzleHardwareConfig.SetPlaceDelays((int)nud_dly_tray.Value, (int)nud_dly_fixture.Value, out error);
+            if (hwOk) hwOk = ThreeNozzleHardwareConfig.SetPickDelays((int)nud_pick_wait.Value, (int)nud_pick_hold.Value, out error);
             EM_RES saveRes = EM_RES.ERR;
             try { saveRes = PT_SET.SavePtCfg(VAR.gsys_set.cur_product_name); } catch (Exception ex) { error = (error ?? "") + " 产品参数保存异常:" + ex.Message; }
 

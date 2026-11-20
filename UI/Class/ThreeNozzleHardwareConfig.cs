@@ -45,9 +45,34 @@ namespace UI
 
         /// <summary>[R15] 料盘放料：Z 到底、关真空开破真空后等待的时间（ms），[Machine] TrayPlaceDly，缺省 50（原写死 50）。</summary>
         public static int TrayPlaceDelayMs { get; private set; } = 50;
-        /// <summary>[R15] 夹具放料（模组带起关闭时）：破真空后等待的时间（ms），[Machine] FixturePlaceDly，缺省 60（原写死 60）。</summary>
-        public static int FixturePlaceDelayMs { get; private set; } = 60;
-        public const int PlaceDelayMin = 20, PlaceDelayMax = 500;
+        /// <summary>[R15/R20] 夹具放料（防带起关闭时）：破真空后等待的时间（ms），[Machine] FixturePlaceDly，缺省 50（原实际写死 50）。</summary>
+        public static int FixturePlaceDelayMs { get; private set; } = 50;
+        public const int PlaceDelayMin = 0, PlaceDelayMax = 500;
+        /// <summary>[R20] 取料：每次等真空到位的最长时间（ms），等不到 Z 再压一点再等一次，[Machine] PickVacuumWait，缺省 500（原写死）。</summary>
+        public static int PickVacuumWaitMs { get; private set; } = 500;
+        public const int PickVacuumWaitMin = 50, PickVacuumWaitMax = 1000;
+        /// <summary>[R20] 取料：真空到位后再保持多久才抬 Z（ms），[Machine] PickHoldDly，缺省 0（原来到位立即抬）。</summary>
+        public static int PickHoldMs { get; private set; } = 0;
+        public const int PickHoldMax = 500;
+
+        /// <summary>[R20] 调试模式“取放延时”：取料等真空时间/取料保持时间，写回并立即生效。</summary>
+        public static bool SetPickDelays(int vacuumWaitMs, int holdMs, out string error)
+        {
+            error = null;
+            if (vacuumWaitMs < PickVacuumWaitMin || vacuumWaitMs > PickVacuumWaitMax || holdMs < 0 || holdMs > PickHoldMax)
+            { error = string.Format("取料等真空 {0}~{1}ms、取料保持 0~{2}ms", PickVacuumWaitMin, PickVacuumWaitMax, PickHoldMax); return false; }
+            lock (sync)
+            {
+                Initialize();
+                if (!WriteMachineValues(new Dictionary<string, string> {
+                    { "PickVacuumWait", vacuumWaitMs.ToString(CultureInfo.InvariantCulture) },
+                    { "PickHoldDly", holdMs.ToString(CultureInfo.InvariantCulture) }
+                }, out error)) return false;
+                PickVacuumWaitMs = vacuumWaitMs;
+                PickHoldMs = holdMs;
+            }
+            return true;
+        }
 
         /// <summary>[R16] 运动下发快速起步（不固定等 50ms），[Machine] FastMoveIssue，缺省 true。实际开关在 AXIS.FastMoveIssue。</summary>
         public static bool FastMoveIssueEnabled { get { return AXIS.FastMoveIssue; } }
@@ -224,7 +249,11 @@ namespace UI
                     TrayPlaceDelayMs = int.TryParse(Get(values, "Machine.TrayPlaceDly"), NumberStyles.Integer, CultureInfo.InvariantCulture, out dly)
                         ? Math.Max(PlaceDelayMin, Math.Min(PlaceDelayMax, dly)) : 50;
                     FixturePlaceDelayMs = int.TryParse(Get(values, "Machine.FixturePlaceDly"), NumberStyles.Integer, CultureInfo.InvariantCulture, out dly)
-                        ? Math.Max(PlaceDelayMin, Math.Min(PlaceDelayMax, dly)) : 60;
+                        ? Math.Max(PlaceDelayMin, Math.Min(PlaceDelayMax, dly)) : 50;
+                    PickVacuumWaitMs = int.TryParse(Get(values, "Machine.PickVacuumWait"), NumberStyles.Integer, CultureInfo.InvariantCulture, out dly)
+                        ? Math.Max(PickVacuumWaitMin, Math.Min(PickVacuumWaitMax, dly)) : 500;
+                    PickHoldMs = int.TryParse(Get(values, "Machine.PickHoldDly"), NumberStyles.Integer, CultureInfo.InvariantCulture, out dly)
+                        ? Math.Max(0, Math.Min(PickHoldMax, dly)) : 0;
                     for (int arm = 0; arm < 2; arm++)
                     {
                         string raw = Get(values, "Machine.FlyLowSpeed" + (arm + 1));

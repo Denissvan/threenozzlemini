@@ -28,7 +28,7 @@ namespace UI
             tp_setparm_1.Enter += (s, e) => RefreshBackCheckAlarm();
             RefreshBackCheckAlarm();
             // [R15] 调试模式可把延时调到 50 以下：放开系统页输入框下限，否则加载/同步时超范围报错
-            nud_PlaceDly.Minimum = 40;
+            nud_PlaceDly.Minimum = 0;
             nud_MovUpDly.Minimum = 0;
         }
 

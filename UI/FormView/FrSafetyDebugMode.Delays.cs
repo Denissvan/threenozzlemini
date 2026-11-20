@@ -15,13 +15,14 @@ namespace UI
         private CheckBox chk_dly_pasteup;
         private NumericUpDown nud_dly_place, nud_dly_movup, nud_dly_fixture, nud_dly_tray;
         private Label lbl_dly_state;
+        private CheckBox chk_fast_issue;
 
         private void InitPickPlaceDelayGroup()
         {
             ThreeNozzleHardwareConfig.Initialize();
             ClientSize = new Size(Math.Max(ClientSize.Width, 900), ClientSize.Height);
             Font f = new Font("Microsoft YaHei UI", 10.5F);
-            grp_delays = new GroupBox { Text = "取放延时（应用后立即生效并保存）", Location = new Point(572, 12), Size = new Size(316, 420), Font = f };
+            grp_delays = new GroupBox { Text = "取放延时（应用后立即生效并保存）", Location = new Point(572, 12), Size = new Size(316, 500), Font = f };
             Controls.Add(grp_delays);
 
             int y = 30;
@@ -58,6 +59,29 @@ namespace UI
             y += 44;
             lbl_dly_state = new Label { Location = new Point(12, y), Size = new Size(296, 40), Font = new Font("Microsoft YaHei UI", 9F) };
             grp_delays.Controls.Add(lbl_dly_state);
+            y += 44;
+
+            // [R16] 运动下发快速起步：勾选即生效并保存
+            chk_fast_issue = new CheckBox { Text = "运动快速起步（不固定等50ms）", Location = new Point(12, y), AutoSize = true, Checked = AXIS.FastMoveIssue };
+            grp_delays.Controls.Add(chk_fast_issue);
+            grp_delays.Controls.Add(new Label
+            {
+                Location = new Point(12, y + 26), Size = new Size(296, 36), ForeColor = Color.DimGray, Font = new Font("Microsoft YaHei UI", 9F),
+                Text = "取消勾选=恢复原来每根轴下发后固定等50ms。出现到位异常、动作不对时先取消勾选再观察。"
+            });
+            chk_fast_issue.CheckedChanged += (s, e) =>
+            {
+                string err;
+                bool want = chk_fast_issue.Checked;
+                if (!ThreeNozzleHardwareConfig.SetFastMoveIssue(want, out err))
+                {
+                    AXIS.FastMoveIssue = want;   // 保存失败也先在本次运行生效
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.ERR, "[R16] 运动快速起步保存失败：" + err);
+                }
+                string op = "未知";
+                try { op = FrMain.frsuser.user1.cur_user.ToString(); } catch { }
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("[R16] 运动快速起步已{0}，操作员={1}", want ? "开启" : "关闭（每根轴下发后固定等50ms）", op));
+            };
 
             LoadPickPlaceDelays();
         }

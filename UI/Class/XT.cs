@@ -1023,6 +1023,7 @@ namespace UI
             public double LagX = double.NaN, LagY = double.NaN, LagU = double.NaN;
             public double StartX = double.NaN, StartY = double.NaN, StartU = double.NaN;
             public double DX = double.NaN, DY = double.NaN, DU = double.NaN;
+            public string ZDownDetail = "-";
             public long Now { get { return sw.ElapsedMilliseconds; } }
         }
 
@@ -1075,6 +1076,13 @@ namespace UI
             catch { }
         }
 
+        /// <summary>[R16] Z 最近一次运动：下发前检查/等起步/等停止/到位补等（ms）。</summary>
+        private string ZMoveDetail()
+        {
+            if (ax_z == null) return "-";
+            return string.Format("检查{0}+起步{1}+运动{2}+到位{3}", ax_z.LastCheckMs, ax_z.LastStartWaitMs, ax_z.LastStopWaitMs, ax_z.LastSettleExtraMs);
+        }
+
         private void LogPickPlaceTiming(PickPlaceTiming t, string kind, EM_RES result)
         {
             if (t == null) return;
@@ -1086,7 +1094,10 @@ namespace UI
                     "{0} [R1] 取放计时[{1}] 平移={2}ms Z下={3}ms 底部={4}ms Z上={5}ms 合计={6}ms；到位后等编码器 X+{7}ms Y+{8}ms U+{12}ms，到位残差 X={9:F3} Y={10:F3} U={13:F3}；[R9]平移量 X={14:F3} Y={15:F3} U={16:F3}；结果={11}",
                     disc, kind, t.Move < 0 ? "-" : t.Move.ToString(), span(t.Move, t.Down), span(t.Down, t.Bottom),
                     span(t.Bottom < 0 ? t.Down : t.Bottom, end), end, t.SettleX, t.SettleY, t.LagX, t.LagY, result,
-                    t.SettleU, t.LagU, t.DX, t.DY, t.DU));
+                    t.SettleU, t.LagU, t.DX, t.DY, t.DU) +
+                    string.Format("；[R16]Z下拆分({0}) Z上拆分({1}) 平移起步 X{2}/Y{3}/U{4}ms 快速起步={5}",
+                        t.ZDownDetail, ZMoveDetail(), ax_x == null ? -1 : ax_x.LastStartWaitMs, ax_y == null ? -1 : ax_y.LastStartWaitMs,
+                        ax_u == null ? -1 : ax_u.LastStartWaitMs, AXIS.FastMoveIssue ? "开" : "关"));
             }
             catch { }
         }
@@ -1180,7 +1191,7 @@ namespace UI
                 }
                
                 res = MT.Move(ref bquit, ref ax_z, st_pos.z);
-                if (timing != null) timing.Down = timing.Now;
+                if (timing != null) { timing.Down = timing.Now; timing.ZDownDetail = ZMoveDetail(); }
                 if (res != EM_RES.OK) { goto CleanupComplete; }
                 
                 //Thread.Sleep(10);
@@ -1403,7 +1414,7 @@ namespace UI
                 cy_zk.SetOn();
                 //down
                 res = MT.Move(ref bquit, ref ax_z, pos.z);
-                if (timing != null) timing.Down = timing.Now;
+                if (timing != null) { timing.Down = timing.Now; timing.ZDownDetail = ZMoveDetail(); }
                 if (res != EM_RES.OK)
                 {
                     LogZFailure("取料(Pick) Z下降", pos.z, res);
@@ -1518,7 +1529,7 @@ namespace UI
 
                 //down
                 res = MT.Move(ref bquit, ref ax_z, pos.z);
-                if (timing != null) timing.Down = timing.Now;
+                if (timing != null) { timing.Down = timing.Now; timing.ZDownDetail = ZMoveDetail(); }
                 if (res != EM_RES.OK)
                 {
                     LogZFailure("放料(Place) Z下降", pos.z, res);

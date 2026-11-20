@@ -2339,11 +2339,38 @@ namespace MotionCtrl
         double tempDis = 0;
         /// <summary>诊断用：最近一次 WaitForMoveDone 在指令走完后为等编码器到位额外睡了多少 ms（0/10/110/210）。</summary>
         public volatile int LastSettleExtraMs;
+        /// <summary>
+        /// [R16] 运动下发后不再固定 Thread.Sleep(50)：改为确认轴已开始运动（或已走到目标）就返回，最多仍等 50ms。
+        /// 原来 X/Y/U 三轴是逐根下发、每根都睡 50ms，Y 晚 X 50ms 起步、U 晚 100ms 起步，短距离平移至少 150ms。
+        /// 由 ThreeNozzleHardware.ini [Machine] FastMoveIssue 控制（缺省 true），调试模式窗口可关。
+        /// </summary>
+        public static volatile bool FastMoveIssue = true;
+        /// <summary>[R16] 诊断：最近一次 MoveTo 下发前检查耗时 / 等起步耗时 / WaitForStop 耗时（ms）。</summary>
+        public volatile int LastCheckMs, LastStartWaitMs, LastStopWaitMs;
+
+        private static int ElapsedMs(long startTicks)
+        {
+            return (int)((System.Diagnostics.Stopwatch.GetTimestamp() - startTicks) * 1000 / System.Diagnostics.Stopwatch.Frequency);
+        }
+
+        /// <summary>[R16] 下发后等轴真正开始动：板卡报“在运动”或指令位置已到目标（极短行程已走完）即返回，最多 50ms（与原固定等待相同）。</summary>
+        private void WaitMotionStarted(double pos)
+        {
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            while (ElapsedMs(t0) < 50)
+            {
+                if (!isStop) return;
+                if (Math.Abs(cmd_pos - pos * pul_per_mm) < 3) return;
+                Thread.Sleep(1);
+            }
+        }
         public EM_RES WaitForMoveDone(ref bool pbquit, double targetpos, int timeout_ms, bool bdoevent = false)
         {
             LastSettleExtraMs = 0;
             //wait stop
+            long stopWaitTs = System.Diagnostics.Stopwatch.GetTimestamp();
             res = WaitForStop(ref pbquit, timeout_ms, bdoevent);
+            LastStopWaitMs = ElapsedMs(stopWaitTs);
             if (res != EM_RES.OK) return res;
 
             //check pos
@@ -2727,6 +2754,8 @@ namespace MotionCtrl
             EM_RES ret = EM_RES.OK;
             string ErrMes = string.Empty;
             if (mt_type == MT_TYPE.VIRTUAL) return res = EM_RES.OK;
+            long moveEntryTs = System.Diagnostics.Stopwatch.GetTimestamp();
+            LastCheckMs = 0; LastStartWaitMs = 0; LastStopWaitMs = 0;
 
             //check param
             ret = ChkParam();
@@ -2904,7 +2933,11 @@ namespace MotionCtrl
                     }
 #endif
                     //wait for start move
-                    Thread.Sleep(50);
+                    LastCheckMs = ElapsedMs(moveEntryTs);
+                    long startWaitTs = System.Diagnostics.Stopwatch.GetTimestamp();
+                    if (FastMoveIssue && ret == EM_RES.OK) WaitMotionStarted(pos);   // [R16]
+                    else Thread.Sleep(50);
+                    LastStartWaitMs = ElapsedMs(startWaitTs);
                     break;
                 default:
                     //res status

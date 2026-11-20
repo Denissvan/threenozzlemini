@@ -49,6 +49,21 @@ namespace UI
         public static int FixturePlaceDelayMs { get; private set; } = 60;
         public const int PlaceDelayMin = 20, PlaceDelayMax = 500;
 
+        /// <summary>[R16] 运动下发快速起步（不固定等 50ms），[Machine] FastMoveIssue，缺省 true。实际开关在 AXIS.FastMoveIssue。</summary>
+        public static bool FastMoveIssueEnabled { get { return AXIS.FastMoveIssue; } }
+
+        public static bool SetFastMoveIssue(bool enabled, out string error)
+        {
+            error = null;
+            lock (sync)
+            {
+                Initialize();
+                if (!WriteMachineKey("FastMoveIssue", enabled ? "true" : "false", out error)) return false;
+                AXIS.FastMoveIssue = enabled;
+            }
+            return true;
+        }
+
         /// <summary>[R15] 调试模式窗口“取放延时”：写回 [Machine] TrayPlaceDly / FixturePlaceDly 并立即生效（下一次放料起）。</summary>
         public static bool SetPlaceDelays(int trayMs, int fixtureMs, out string error)
         {
@@ -203,6 +218,8 @@ namespace UI
                     FlyTwoSpeedEnabled = bool.TryParse(Get(values, "Machine.FlyTwoSpeed"), out twoSpeed) && twoSpeed;
                     bool backAlarm;
                     BackCheckAlarmEnabled = bool.TryParse(Get(values, "Machine.BackCheckAlarm"), out backAlarm) && backAlarm;
+                    bool fastIssue;
+                    AXIS.FastMoveIssue = !bool.TryParse(Get(values, "Machine.FastMoveIssue"), out fastIssue) || fastIssue;
                     int dly;
                     TrayPlaceDelayMs = int.TryParse(Get(values, "Machine.TrayPlaceDly"), NumberStyles.Integer, CultureInfo.InvariantCulture, out dly)
                         ? Math.Max(PlaceDelayMin, Math.Min(PlaceDelayMax, dly)) : 50;

@@ -671,6 +671,10 @@
     <Compile Include="FormView\FrSafetyDebugMode.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="FormView\FrSafetyDebugMode.Delays.cs">
+      <DependentUpon>FrSafetyDebugMode.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="FormView\FrSafetyDebugMode.Designer.cs">
       <DependentUpon>FrSafetyDebugMode.cs</DependentUpon>
     </Compile>

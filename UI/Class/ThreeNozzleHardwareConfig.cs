@@ -42,6 +42,31 @@ namespace UI
         /// 成品料盘在放第二颗新料时就提前定位（原来要等回检完）。关：原流程。缺省关。
         /// </summary>
         public static bool BackCheckAlarmEnabled { get; private set; }
+
+        /// <summary>[R15] 料盘放料：Z 到底、关真空开破真空后等待的时间（ms），[Machine] TrayPlaceDly，缺省 50（原写死 50）。</summary>
+        public static int TrayPlaceDelayMs { get; private set; } = 50;
+        /// <summary>[R15] 夹具放料（模组带起关闭时）：破真空后等待的时间（ms），[Machine] FixturePlaceDly，缺省 60（原写死 60）。</summary>
+        public static int FixturePlaceDelayMs { get; private set; } = 60;
+        public const int PlaceDelayMin = 20, PlaceDelayMax = 500;
+
+        /// <summary>[R15] 调试模式窗口“取放延时”：写回 [Machine] TrayPlaceDly / FixturePlaceDly 并立即生效（下一次放料起）。</summary>
+        public static bool SetPlaceDelays(int trayMs, int fixtureMs, out string error)
+        {
+            error = null;
+            if (trayMs < PlaceDelayMin || trayMs > PlaceDelayMax || fixtureMs < PlaceDelayMin || fixtureMs > PlaceDelayMax)
+            { error = string.Format("放料延时必须在 {0}~{1}ms 之间", PlaceDelayMin, PlaceDelayMax); return false; }
+            lock (sync)
+            {
+                Initialize();
+                if (!WriteMachineValues(new Dictionary<string, string> {
+                    { "TrayPlaceDly", trayMs.ToString(CultureInfo.InvariantCulture) },
+                    { "FixturePlaceDly", fixtureMs.ToString(CultureInfo.InvariantCulture) }
+                }, out error)) return false;
+                TrayPlaceDelayMs = trayMs;
+                FixturePlaceDelayMs = fixtureMs;
+            }
+            return true;
+        }
         private static readonly double[] flyLowSpeed = { 250, 250 };
         public static double FlyLowSpeed(int arm)
         {
@@ -178,6 +203,11 @@ namespace UI
                     FlyTwoSpeedEnabled = bool.TryParse(Get(values, "Machine.FlyTwoSpeed"), out twoSpeed) && twoSpeed;
                     bool backAlarm;
                     BackCheckAlarmEnabled = bool.TryParse(Get(values, "Machine.BackCheckAlarm"), out backAlarm) && backAlarm;
+                    int dly;
+                    TrayPlaceDelayMs = int.TryParse(Get(values, "Machine.TrayPlaceDly"), NumberStyles.Integer, CultureInfo.InvariantCulture, out dly)
+                        ? Math.Max(PlaceDelayMin, Math.Min(PlaceDelayMax, dly)) : 50;
+                    FixturePlaceDelayMs = int.TryParse(Get(values, "Machine.FixturePlaceDly"), NumberStyles.Integer, CultureInfo.InvariantCulture, out dly)
+                        ? Math.Max(PlaceDelayMin, Math.Min(PlaceDelayMax, dly)) : 60;
                     for (int arm = 0; arm < 2; arm++)
                     {
                         string raw = Get(values, "Machine.FlyLowSpeed" + (arm + 1));

@@ -121,6 +121,7 @@ namespace UI
             chk_earlyprefetch.Checked = UpDownLoad.ThreeNozzleEarlyPrefetchEnabled;
             LoadPrePlaceTaskNames();
             cmb_preplacefly.SelectedIndex = (int)UpDownLoad.ThreeNozzlePrePlaceFly;
+            InitPickPlaceDelayGroup();   // [R15] 取放延时
             CheckBox[] checks = { chk_emg0, chk_emg1, chk_emg2, chk_emg3 };
             Label[] states = { lbl_emg0, lbl_emg1, lbl_emg2, lbl_emg3 };
             int i = 0;

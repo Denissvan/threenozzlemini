@@ -1230,10 +1230,11 @@ namespace UI
                         Thread.Sleep(50);
                         if (bPasteUp)
                         {
-                            Thread.Sleep(PT_SET.PlaceDly-40);
+                            // [R15] 下限保护：放料延时小于 40 时原来会 Sleep(负数) 异常/无限等待
+                            Thread.Sleep(Math.Max(0, PT_SET.PlaceDly - 40));
                             res = MT.Move(ref bquit, ref ax_z, st_pos.z - ZApproachDirection);
                            // if (res != EM_RES.OK) { goto CleanupComplete; }
-                            Thread.Sleep(PT_SET.MovUpDly);
+                            Thread.Sleep(Math.Max(0, PT_SET.MovUpDly));
                         }
                         //// VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, gpio_pzk.disc + "关闭");
                         //gpio_pzk.SetOff();
@@ -1253,7 +1254,7 @@ namespace UI
 
                         cy_zk.SetOff();
                         gpio_pzk.SetOn();
-                        Thread.Sleep(60);
+                        Thread.Sleep(ThreeNozzleHardwareConfig.FixturePlaceDelayMs);   // [R15] 原写死 60，调试模式可改
 
                     }
                 }
@@ -1527,7 +1528,7 @@ namespace UI
                 //zk off
                 cy_zk.SetOff();
                 gpio_pzk.SetOn();
-                Thread.Sleep(50);
+                Thread.Sleep(ThreeNozzleHardwareConfig.TrayPlaceDelayMs);   // [R15] 原写死 50，调试模式可改
                 if (timing != null) timing.Bottom = timing.Now;
             }
             finally

@@ -27,6 +27,17 @@ namespace UI
             chk_tn_backalarm.CheckedChanged += chk_tn_backalarm_CheckedChanged;
             tp_setparm_1.Enter += (s, e) => RefreshBackCheckAlarm();
             RefreshBackCheckAlarm();
+            // [R15] 调试模式可把延时调到 50 以下：放开系统页输入框下限，否则加载/同步时超范围报错
+            nud_PlaceDly.Minimum = 40;
+            nud_MovUpDly.Minimum = 0;
+        }
+
+        /// <summary>[R15] 调试模式应用取放延时后同步系统页显示，避免系统页之后保存时用旧值覆盖。</summary>
+        public void SyncPickPlaceDelays()
+        {
+            Chk_ModPasteUp.Checked = PT_SET.bModPasteUp;
+            nud_PlaceDly.Value = Math.Max(nud_PlaceDly.Minimum, Math.Min(nud_PlaceDly.Maximum, PT_SET.PlaceDly));
+            nud_MovUpDly.Value = Math.Max(nud_MovUpDly.Minimum, Math.Min(nud_MovUpDly.Maximum, PT_SET.MovUpDly));
         }
 
         private void RefreshBackCheckAlarm()

@@ -2373,103 +2373,53 @@ namespace MotionCtrl
             LastStopWaitMs = ElapsedMs(stopWaitTs);
             if (res != EM_RES.OK) return res;
 
-            //check pos
-            //double tol = (1.0 / pul_per_mm * 2);
-            //if (tol < 0.01) tol = 0.01;
-            double curDisPos = 0;
-            double objDis = 4;
-            // 停下后先直接看一次位置：已经在到位范围内（判据与下面相同）就不再固定等 10ms。
-            // 每次运动结束都会走这里，一轮换料三十多次运动，累计约 0.3s
-            if (mt_type == MT_TYPE.SEVER)
+            // [R17] 到位判定。原来：停下后看一次，不到位固定睡 10ms，再不到位睡 100ms（放宽到 0.8mm）、再睡 100ms（放宽到 1.3mm）；
+            // 而且放宽后的 1.3mm 会记在 tempDis 里一直沿用（之后每次都按 1.3mm 判到位）。
+            // 11-20 上下料2_Z2 一次被挡后就一直按 1.3mm 判到位，Z 上升还差 1.1mm 就返回，紧接着的横移被“Z 编码器需在 0±1mm”拦截、换料中止。
+            // 现在：容差固定不再沿用；快速模式下每 2ms 查一次，进 0.5mm（伺服）/60 脉冲（步进）立即返回，最多查 210ms，
+            // 超时后仍按原规则 1.3mm 内放行并报警，超出返回 RETRY。快速模式关闭时按原来固定睡眠（但容差不再沿用）。
+            bool servo = mt_type == MT_TYPE.SEVER;
+            double tight = servo ? pul_per_mm * 0.5 : 60;
+            double loose = servo ? pul_per_mm * 1.3 : 60;
+            Func<double> posErr = () => servo ? Math.Abs(targetpos * pul_per_mm - enc_pos) : Math.Abs(targetpos * pul_per_mm - cmd_pos);
+            double curDisPos = posErr();
+            if (curDisPos <= tight) return res = EM_RES.OK;
+
+            long settleTs = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (FastMoveIssue)
             {
-                double quickObj = pul_per_mm * 0.5;
-                if (tempDis > quickObj) quickObj = tempDis; else tempDis = quickObj;
-                if (Math.Abs(targetpos * pul_per_mm - enc_pos) <= quickObj) return EM_RES.OK;
-            }
-            else if (Math.Abs(targetpos * pul_per_mm - cmd_pos) <= 60) return EM_RES.OK;
-            LastSettleExtraMs = 10;
-            Thread.Sleep(10);
-           // VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, "轴名称为:"+disc+"卡序号"+card.id);
-            if (mt_type == MT_TYPE.SEVER)
-            {
-                //VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, "轴名称为:" + disc + "卡序号" + card.id+"开启轴反馈");
-                curDisPos = Math.Abs(targetpos * pul_per_mm - enc_pos);
-                objDis = pul_per_mm*0.5;
-                if (tempDis > objDis)
+                while (ElapsedMs(settleTs) < 210)
                 {
-                    objDis = tempDis;
-                }
-                else
-                {
-                    tempDis=objDis;
+                    if (pbquit || VAR.gsys_set.bquit) { LastSettleExtraMs = ElapsedMs(settleTs); return res = EM_RES.QUIT; }
+                    Thread.Sleep(2);
+                    curDisPos = posErr();
+                    if (curDisPos <= tight) { LastSettleExtraMs = Math.Max(1, ElapsedMs(settleTs)); return res = EM_RES.OK; }
                 }
             }
             else
             {
-                curDisPos = Math.Abs(targetpos * pul_per_mm - cmd_pos);
-                objDis = 60;
-            }
-
-
-            if (curDisPos > objDis)
-            {            
-                LastSettleExtraMs += 100;
-                Thread.Sleep(100);
-                if (mt_type == MT_TYPE.SEVER )
+                Thread.Sleep(10);
+                curDisPos = posErr();
+                if (curDisPos > tight)
                 {
-                    //VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, "轴名称为:" + disc + "卡序号" + card.id + "开启轴反馈");
-                    curDisPos = Math.Abs(targetpos * pul_per_mm - enc_pos);
-                    objDis = pul_per_mm * 0.8;
-                    if (tempDis > objDis)
-                    {
-                        objDis = tempDis;
-                    }
-                    else
-                    {
-                        tempDis = objDis;
-                    }
-
-                }
-                else
-                {
-                    curDisPos = Math.Abs(targetpos * pul_per_mm - cmd_pos);
-                }
-                if (curDisPos <= objDis) return EM_RES.OK;
-                else
-                {
-                    LastSettleExtraMs += 100;
                     Thread.Sleep(100);
-                    if (mt_type == MT_TYPE.SEVER)
+                    curDisPos = posErr();
+                    if (curDisPos > (servo ? pul_per_mm * 0.8 : 60))
                     {
-                       // VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, "轴名称为:" + disc + "卡序号" + card.id + "开启轴反馈");
-                        curDisPos = Math.Abs(targetpos * pul_per_mm - enc_pos);
-                        objDis = pul_per_mm * 1.3;
-                        if (tempDis > objDis)
-                        {
-                            objDis = tempDis;
-                        }
-                        else
-                        {
-                            tempDis = objDis;
-                        }
-                        VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, disc + "轴定位偏差巨大范围值1.3mm");
-                    }
-                    else
-                    {
-                        curDisPos = Math.Abs(targetpos * pul_per_mm - cmd_pos);
-                    }
-                    if (curDisPos <= objDis) return EM_RES.OK;
-                    else
-                    {
-                        VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, VAR.IsChinese ? string.Format("{0} 定位偏差:{1:0.000}脉冲，超过目标脉冲{2}", disc, curDisPos, objDis) : string.Format("{0} Positioning bias:{1:0.000}   ({0} 定位偏差:{1:0.000})", disc, fcmd_pos - targetpos));
-                        res = EM_RES.RETRY;
-                        return res;
+                        Thread.Sleep(100);
+                        curDisPos = posErr();
                     }
                 }
             }
-            //VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, "轴名称为:" + disc + "卡序号" + card.id+"轴定位完成");
-            res = EM_RES.OK;
-            return res;
+            LastSettleExtraMs = Math.Max(1, ElapsedMs(settleTs));
+            if (curDisPos <= tight) return res = EM_RES.OK;
+            if (curDisPos <= loose)
+            {
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("{0} [R17] 停止后 {1}ms 定位偏差 {2:F3}mm，超过 0.5mm、在 1.3mm 内放行", disc, LastSettleExtraMs, curDisPos / pul_per_mm));
+                return res = EM_RES.OK;
+            }
+            VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, VAR.IsChinese ? string.Format("{0} 定位偏差:{1:0.000}脉冲，超过目标脉冲{2}", disc, curDisPos, loose) : string.Format("{0} Positioning bias:{1:0.000}   ({0} 定位偏差:{1:0.000})", disc, fcmd_pos - targetpos));
+            return res = EM_RES.RETRY;
         }
         #endregion
         #region 速度曲线PVT

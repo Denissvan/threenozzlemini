@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using MotionCtrl;
 
 namespace UI
@@ -259,6 +260,33 @@ namespace UI
             return true;
         }
 
+        /// <summary>
+        /// [R17] 三根 Z 都已停止、指令都在 0，只是编码器还没回到 0±1mm（Z 上升收尾的伺服跟随滞后，约 1mm）：
+        /// 每 2ms 查一次，最多等 maxMs，进安全范围返回 true。不满足前提（有 Z 没停/指令不在 0/板卡异常）立即返回 false。
+        /// 原来这种情况直接“运动拦截”，换料中止。
+        /// </summary>
+        public static bool WaitArmZSettled(int armId, int maxMs = 300)
+        {
+            if (armId < 0 || armId > 1) return false;
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            Func<int> elapsed = () => (int)((System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000 / System.Diagnostics.Stopwatch.Frequency);
+            while (true)
+            {
+                foreach (AXIS axis in GetArmZAxes(armId))
+                {
+                    if (!axis.card.isReady || axis.home_status != AXIS.HOME_STA.OK || !axis.isStop) return false;
+                    if (double.IsNaN(axis.fcmd_pos) || Math.Abs(axis.fcmd_pos) > 0.0005) return false;
+                }
+                if (AreAllArmZSafe(armId))
+                {
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("[R17] 臂{0} Z 已停在 0，等编码器回到 0±1mm 用时 {1}ms 后放行横移", armId + 1, elapsed()));
+                    return true;
+                }
+                if (elapsed() >= maxMs) return false;
+                Thread.Sleep(2);
+            }
+        }
+
         public static EM_RES RaiseAllArmZ(ref bool quit, int armId, int timeout = 20000, bool events = false)
         {
             // 三根 Z 都已经停在安全高度（指令和编码器都在 0）：不再逐根下发“走到 0”的空运动。
@@ -279,7 +307,7 @@ namespace UI
                 EM_RES result = Move(ref quit, ref moving, 0, timeout, events);
                 if (result != EM_RES.OK) return result;
             }
-            if (AreAllArmZSafe(armId)) return EM_RES.OK;
+            if (AreAllArmZSafe(armId) || WaitArmZSettled(armId)) return EM_RES.OK;
             VAR.msg.AddMsg(Msg.EM_MSGTYPE.ERR, "运动拦截：臂" + (armId + 1) + " 抬升全部Z后仍不满足安全高度。" +
                 DescribeLateralBlock(armId == 0 ? AXIS_UDL1_X : AXIS_UDL2_X, double.NaN));
             return EM_RES.MOVE_PROTECT;

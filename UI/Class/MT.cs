@@ -2261,7 +2261,9 @@ namespace UI
             double[] requestedPositions = { xpos, ypos, zpos, rpos, wpos, upos };
             for (int i = 0; i < requestedAxes.Length; i++)
             {
-                if (!IsThreeNozzleLateralMoveSafe(requestedAxes[i], requestedPositions[i]))
+                // [R17] Z 刚升到 0、编码器还差约 1mm（伺服跟随收尾）时先短等，不直接拦截
+                if (!IsThreeNozzleLateralMoveSafe(requestedAxes[i], requestedPositions[i]) &&
+                    !(WaitArmZSettled(GetLateralArmId(requestedAxes[i])) && IsThreeNozzleLateralMoveSafe(requestedAxes[i], requestedPositions[i])))
                 {
                     VAR.msg.AddMsg(Msg.EM_MSGTYPE.ERR, "运动拦截：" + DescribeLateralBlock(requestedAxes[i], requestedPositions[i]));
                     return EM_RES.MOVE_PROTECT;

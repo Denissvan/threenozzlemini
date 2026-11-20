@@ -107,6 +107,13 @@ namespace UI
             {
                 AXIS otherX = id == 0 ? MT.AXIS_UDL2_X : MT.AXIS_UDL1_X;
                 double otherExtent = otherX == null ? 0 : Math.Max(Math.Abs(otherX.fenc_pos), Math.Abs(otherX.fcmd_pos));
+                // [R19] 对臂已在夹具区（|X|≥100）时，它接下来会去本组最外侧的穴、还要加吸嘴偏移，不能只按它此刻的 X 算。
+                // 11-20 13:47:22 按对臂当前 -209.762 让到 158.453，对臂随后去 -211.933 放料，合计 370.385 超上限，对臂在夹具上方等了 0.72s。
+                if (otherExtent >= 100)
+                {
+                    string reachSource;
+                    otherExtent = Math.Max(otherExtent, ThreeNozzleOtherArmReach(out reachSource) + ThreeNozzleParkReachMargin);
+                }
                 double allowed = MT.EffectiveDualArmCombinedExtentLimit - otherExtent - 2.0;
                 if (FlyFinite(allowed) && Math.Abs(wsX) > allowed && allowed >= ThreeNozzleTrayFlyYieldMinX)
                 {

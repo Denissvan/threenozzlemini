@@ -923,6 +923,7 @@ namespace UI
                 result = ThreeNozzleAdoptEarly(ref quit);
                 if (result != EM_RES.OK) return result;
                 if (ThreeNozzleHasSpecialMode) return ThreeNozzleRunSpecialMode(ref quit, ws);
+                threeNozzleTailParked = false;
                 while (threeNozzlePairIndex < threeNozzlePairs.Count)
                 {
                     if (quit) return EM_RES.QUIT;
@@ -979,7 +980,10 @@ namespace UI
                             // 最后一组：不再回 X=0，只把 Y 退到等待位高度（下相机拍照位），X 留在原地，由尾部卸料直接去料仓。
                             // 需要协调线程统一做后检查（BeginUnload 要求两臂 X≈0）时照旧回零。
                             bool tailDirect = !notLastPair && ThreeNozzleTailSkipHomeEnabled && !ThreeNozzleArmNeedsPostChecks(ws);
-                            result = ThreeNozzleFinishChecksAndLeave(ref quit, goDirect, tailDirect);
+                            // [R19] 不是最后一组、手上没有成品要落（例如空夹具只上料）：下一步是去供料盘取料，不回 X=0 再出来
+                            bool toFeedTray = notLastPair && !goDirect && ThreeNozzleLeaveToFeedTrayEnabled;
+                            threeNozzleTailParked = false;
+                            result = ThreeNozzleFinishChecksAndLeave(ref quit, goDirect, tailDirect, toFeedTray);
                             break;
                         }
                         case ThreeNozzleAction.UnloadFinished: result = ThreeNozzleUnloadCore(ref quit); break;
@@ -991,6 +995,9 @@ namespace UI
                     if (result != EM_RES.OK) return result;
                     pair.Sequence.Step(a => true);
                 }
+                // [R19] 最后一组已按 R2 停在停车位（不回 X=0）：这里只确认 Z 已抬起，不再 GoZero 把 X 拉回 0
+                // （原来 R2 留在原地后，这里又 GoZero 回了 X=0，R2 实际没生效；11-20 日志模块1 每轮 119→0→158）
+                if (threeNozzleTailParked) return MT.RaiseAllArmZ(ref quit, id);
                 return GoZero(ref quit);
             }
             catch { threeNozzleRecovery = true; throw; }
@@ -1178,7 +1185,36 @@ namespace UI
         /// <summary>开关：离开夹具时成品料盘还在预定位，先把臂走到第一颗成品的落料位上方（默认开），不在夹具口停着等料盘。</summary>
         public static bool ThreeNozzleApproachDuringTrayPreMoveEnabled = true;
 
-        private EM_RES ThreeNozzleFinishChecksAndLeave(ref bool quit, bool goDirect = false, bool tailDirect = false)
+        /// <summary>[R19] 开关：不是最后一组、手上没有成品时，离开夹具不回 X=0，停到不挡对臂的 X 后直接去供料盘（默认开）。</summary>
+        public static bool ThreeNozzleLeaveToFeedTrayEnabled = true;
+        /// <summary>[R19] 最后一组已停在停车位（X 不回 0）：RunExchange 结束时不再 GoZero。</summary>
+        private bool threeNozzleTailParked;
+        /// <summary>[R19] 停车/让位 X 的余量：对臂最远穴位 X 之外再留的距离（吸嘴偏移+视觉补偿，11-20 实测放料 X 比拍照 X 多 0.8mm）。</summary>
+        public const double ThreeNozzleParkReachMargin = 3.0;
+
+        /// <summary>
+        /// [R19] 离开夹具时停的 X：留在当前列，但不超过“对臂最远工作 X + 余量”允许的范围，保证对臂随时去它最外侧的穴都不用等本臂。
+        /// 原来回 X=0，下一步去料盘又从 0 走出来（模块1 每组 215→0→183 多走约 0.9s）。
+        /// </summary>
+        private double ThreeNozzleParkX(out string why)
+        {
+            string source;
+            double reach = ThreeNozzleOtherArmReach(out source) + ThreeNozzleParkReachMargin;
+            double allowed = MT.EffectiveDualArmCombinedExtentLimit - reach - 2.0;
+            double x = ax_x.fcmd_pos;
+            if (!FlyFinite(x) || !FlyFinite(allowed) || allowed < 1)
+            {
+                why = string.Format("对臂最远 {0:F3}（{1}）+余量后本臂可用 X 不足，回 X=0", reach, source);
+                return 0;
+            }
+            double park = Math.Abs(x) <= allowed ? x : Math.Sign(x) * allowed;
+            why = Math.Abs(x) <= allowed
+                ? string.Format("X 留在 {0:F3}（对臂最远 {1:F3}，{2}）", x, reach - ThreeNozzleParkReachMargin, source)
+                : string.Format("X {0:F3}→{1:F3}（对臂最远 {2:F3}+余量 {3:F1}，{4}）", x, park, reach - ThreeNozzleParkReachMargin, ThreeNozzleParkReachMargin, source);
+            return park;
+        }
+
+        private EM_RES ThreeNozzleFinishChecksAndLeave(ref bool quit, bool goDirect = false, bool tailDirect = false, bool toFeedTray = false)
         {
             foreach (XT xt in list_xt)
             {
@@ -1193,6 +1229,18 @@ namespace UI
                 if (r != EM_RES.OK) return r;
                 return MT.Move(ref quit, ref ax_u1, 0, ref ax_u2, 0, ref list_xt[2].ax_u, 0);
             }
+            if (toFeedTray)
+            {
+                // [R19] 只抬 Z、U 回 0，X 停到不挡对臂的位置，Y 不动；下一组去供料盘飞拍时从这里直接走
+                EM_RES r = MT.RaiseAllArmZ(ref quit, id);
+                if (r != EM_RES.OK) return r;
+                string why;
+                double parkX = ThreeNozzleParkX(out why);
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R19] 三吸嘴: 手上无成品，离开夹具不回 X=0，{1}，接着直接去供料盘", disc, why));
+                r = MT.ZupMove(ref quit, ref ax_x, parkX, ref ax_u1, 0, ref ax_u2, 0);
+                if (r != EM_RES.OK) return r;
+                return MT.Move(ref quit, ref list_xt[2].ax_u, 0);
+            }
             if (tailDirect)
             {
                 double waitY = list_xt[1].st_cap_pos.y;
@@ -1202,11 +1250,16 @@ namespace UI
                     EM_RES r = MT.RaiseAllArmZ(ref quit, id);
                     if (r != EM_RES.OK) return r;
                     double y = Math.Min(ax_y.fcmd_pos, waitY);
-                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R2] 三吸嘴: 最后一组离开夹具，不回 X=0，X 留在 {1:F3}，Y {2:F3}→{3:F3}，尾部卸料直接去料仓",
-                        disc, ax_x.fcmd_pos, ax_y.fcmd_pos, y));
-                    r = MT.ZupMove(ref quit, ref ax_y, y, ref ax_u1, 0, ref ax_u2, 0);
+                    // [R19] X 停到不挡对臂的位置（原来留在当前列，可能挡住对臂最外侧的穴）
+                    string why;
+                    double parkX = ThreeNozzleParkX(out why);
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R2] 三吸嘴: 最后一组离开夹具，不回 X=0，[R19]{1}，Y {2:F3}→{3:F3}，尾部卸料直接去料仓",
+                        disc, why, ax_y.fcmd_pos, y));
+                    r = MT.ZupMove(ref quit, ref ax_x, parkX, ref ax_y, y, ref ax_u1, 0, ref ax_u2, 0);
                     if (r != EM_RES.OK) return r;
-                    return MT.Move(ref quit, ref list_xt[2].ax_u, 0);
+                    r = MT.Move(ref quit, ref list_xt[2].ax_u, 0);
+                    if (r == EM_RES.OK) threeNozzleTailParked = true;
+                    return r;
                 }
                 VAR.msg.AddMsg(Msg.EM_MSGTYPE.WAR, string.Format("{0} [R2] 三吸嘴: 等待位 Y={1:F3} / SafeTrayMaxY={2:F3} 不可用，最后一组照旧回零", disc, waitY, safeY));
             }

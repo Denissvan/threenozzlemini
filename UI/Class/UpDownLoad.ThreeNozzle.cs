@@ -818,6 +818,7 @@ namespace UI
                     return EM_RES.OK;
                 }
                 var watch = Stopwatch.StartNew();
+                ThreeNozzleClearParked();   // [R22]
                 CtStepLog.SetContext(disc, "提前预取待测(" + target.disc + ")");
                 threeNozzleDrain = false;
                 threeNozzleEarlyTarget = target;   // [R9] 模块1先行要知道这组属于哪个工站
@@ -924,6 +925,7 @@ namespace UI
                 if (result != EM_RES.OK) return result;
                 if (ThreeNozzleHasSpecialMode) return ThreeNozzleRunSpecialMode(ref quit, ws);
                 threeNozzleTailParked = false;
+                ThreeNozzleClearParked();   // [R22]
                 while (threeNozzlePairIndex < threeNozzlePairs.Count)
                 {
                     if (quit) return EM_RES.QUIT;

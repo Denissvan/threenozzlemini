@@ -459,6 +459,18 @@ namespace UI
             return result == EM_RES.OK ? WaitArmPending(1) : result;
         }
 
+        /// <summary>[R22] 该臂的预取/卸料/提前预取任务是否还在执行。</summary>
+        public static bool IsWorkerRunning(int armId)
+        {
+            lock (Sync) return pending != null && armId >= 0 && armId < pending.Length && pending[armId] != null && !pending[armId].IsCompleted;
+        }
+
+        /// <summary>[R22] 该工站的换料是否已经开始（夹具已到位、协调线程已切到它）。</summary>
+        public static bool ExchangeStartedFor(WS ws)
+        {
+            lock (Sync) return ws != null && station == ws && !unloading;
+        }
+
         public static bool WorkersStopped
         {
             get { lock (Sync) return pending == null || (pending[0].IsCompleted && pending[1].IsCompleted); }

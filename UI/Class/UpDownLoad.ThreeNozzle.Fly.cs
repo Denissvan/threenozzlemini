@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using MotionCtrl;
@@ -505,8 +506,69 @@ namespace UI
             if (res != EM_RES.OK) return res;
             res = MT.Move(ref quit, ref list_xt[2].ax_u, 0);
             if (res == EM_RES.OK)
+            {
                 VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴飞拍: 提前预取后停在飞拍起点 X={1:F3} Y={2:F3}", disc, parkX, y));
+                lock (ParkSync) { threeNozzleParkedX[id] = parkX; threeNozzleParkedFor[id] = threeNozzleEarlyTarget; }
+                // [R22] 停车列被限位（本臂第一组在靠中间的列，例如模块1 穴5/13 X≈214.8）时，进夹具前还要再走一次 X、而且来不及与 Y 合并，
+                // 只能“X 先到位再起飞”（11-20 每个工站第一组都这样，约多 0.3s）。对臂也停好后，按它实际的停车位再算一次，够就提前走到这一列。
+                WS.MdDat col = pair.Pockets[0] ?? pair.Pockets[1];
+                if (ThreeNozzleAdvanceParkEnabled && ThreeNozzleParkAtColumnEnabled && col != null && FlyFinite(col.st_pos[id].x) &&
+                    Math.Abs(col.st_pos[id].x - parkX) > 0.5)
+                    res = ThreeNozzleAdvanceParkToColumn(ref quit, threeNozzleEarlyTarget, col.st_pos[id].x);
+            }
             return res;
+        }
+
+        /// <summary>[R22] 停车列被限位后，对臂停好时提前走到本组飞拍列（默认开）。</summary>
+        public static bool ThreeNozzleAdvanceParkEnabled = true;
+        private static readonly object ParkSync = new object();
+        private static readonly double[] threeNozzleParkedX = { double.NaN, double.NaN };
+        private static readonly WS[] threeNozzleParkedFor = new WS[2];
+
+        /// <summary>[R22] 本臂离开停车位（开始换料/重新预取）时清掉停车登记。</summary>
+        private void ThreeNozzleClearParked()
+        {
+            lock (ParkSync) { threeNozzleParkedX[id] = double.NaN; threeNozzleParkedFor[id] = null; }
+        }
+
+        /// <summary>
+        /// [R22] 等对臂也为同一工站提前预取并停好（或它的任务已结束），按对臂实际停车 X 判断本臂能不能直接停到飞拍列：
+        /// |对臂停车X| + |本列X| + 3mm 余量 + 2mm ≤ 合计上限。工站换料一开始就不再等（进夹具时照原来走 X）。最多等 20s。
+        /// </summary>
+        private EM_RES ThreeNozzleAdvanceParkToColumn(ref bool quit, WS target, double columnX)
+        {
+            if (target == null) return EM_RES.OK;
+            int other = id == 0 ? 1 : 0;
+            var watch = Stopwatch.StartNew();
+            while (watch.ElapsedMilliseconds < 20000)
+            {
+                if (quit || VAR.gsys_set.bquit) return EM_RES.QUIT;
+                if (ThreeNozzleCoordinator.ExchangeStartedFor(target)) return EM_RES.OK;
+                double otherX; WS otherFor;
+                lock (ParkSync) { otherX = threeNozzleParkedX[other]; otherFor = threeNozzleParkedFor[other]; }
+                bool otherParked = Object.ReferenceEquals(otherFor, target) && FlyFinite(otherX);
+                if (otherParked)
+                {
+                    double need = Math.Abs(otherX) + Math.Abs(columnX) + ThreeNozzleParkReachMargin + 2.0;
+                    if (need > MT.EffectiveDualArmCombinedExtentLimit)
+                    {
+                        VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R22] 对臂停在 X={1:F3}，本臂列 X={2:F3} 合计超限，仍停在限位处", disc, otherX, columnX));
+                        return EM_RES.OK;
+                    }
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R22] 对臂已停在 X={1:F3}（等了 {2}ms），本臂提前走到飞拍列 X {3:F3}→{4:F3}",
+                        disc, otherX, watch.ElapsedMilliseconds, ax_x.fcmd_pos, columnX));
+                    EM_RES r = MT.ZupMove(ref quit, ref ax_x, columnX);
+                    if (r == EM_RES.OK) lock (ParkSync) threeNozzleParkedX[id] = columnX;
+                    return r;
+                }
+                if (!ThreeNozzleCoordinator.IsWorkerRunning(other))
+                {
+                    // 对臂没有为这个工站提前预取（任务已结束却没登记停车），它换料开始后可能先去料盘外侧列，不提前走
+                    if (watch.ElapsedMilliseconds > 200) return EM_RES.OK;
+                }
+                Thread.Sleep(20);
+            }
+            return EM_RES.OK;
         }
 
         /// <summary>

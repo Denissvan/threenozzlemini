@@ -8,7 +8,7 @@ namespace UI
     /// </summary>
     public static class ThreeNozzleVersion
     {
-        public const string Current = "R21";
+        public const string Current = "R22";
 
         /// <summary>版本 → 提交号与内容。</summary>
         public static readonly string[] Changes =
@@ -34,6 +34,7 @@ namespace UI
             "R19 无成品离开夹具不回X=0停到不挡对臂的X；最后一组停车后不再GoZero(R2生效)；料盘飞拍让位按对臂最远穴位+3mm算(修复对臂夹具上方等0.7s)",
             "R20 放料延时可设0(防带起=等放料延时整数，不防带起项真正用于正式运行)；调试模式加取料等真空时间/取料保持",
             "R21 进夹具X/Y合并起飞时Y限速到标准助跑的速度(合并趟丢帧23%→同先到位)",
+            "R22 提前预取停车列被限位时，对臂停好后按它实际位置提前走到飞拍列(去掉进夹具前多走的一次X)",
         };
 
         public static string Banner

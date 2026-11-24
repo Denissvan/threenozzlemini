@@ -359,7 +359,7 @@ namespace UI
         /// 两臂不再同时抢一个供料盘、也不会同时伸到外侧列。最多等 ThreeNozzleLeadWaitMaxMs，超时照常取（不会卡死）。
         /// 只在两臂都工作、运行中、非清料时生效；等待期间照常处理让位请求。
         /// </summary>
-        public static bool ThreeNozzleLeadArmEnabled = true;
+        public static bool ThreeNozzleLeadArmEnabled = false;   // [R28] 默认关：不再固定模块1先行，谁先准备好谁先拿供料盘锁
         public static int ThreeNozzleLeadWaitMaxMs = 2500;
         private static readonly object threeNozzleLeadSync = new object();
         private static WS threeNozzleLeadStation;

@@ -1474,8 +1474,12 @@ namespace UI
                     return EM_RES.TIMEOUT;
                 }
             }
-            //保证开盖到位
-            if (dly_temp > 0) Thread.Sleep(300);
+            //保证开盖到位（[R28] 原写死 300ms，改为调试模式“开夹具到位后保持”，缺省 300）
+            if (dly_temp > 0)
+            {
+                int settle = ThreeNozzleHardwareConfig.FixtureOpenSettleMs;
+                if (settle > 0) Thread.Sleep(settle);
+            }
             return res;
         }
         public EM_RES FrCyDown(ref bool bquit, int dly = 1000, bool bdoevent = false, int idx = -1)

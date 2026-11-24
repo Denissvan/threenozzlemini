@@ -54,6 +54,26 @@ namespace UI
         /// <summary>[R20] 取料：真空到位后再保持多久才抬 Z（ms），[Machine] PickHoldDly，缺省 0（原来到位立即抬）。</summary>
         public static int PickHoldMs { get; private set; } = 0;
         public const int PickHoldMax = 500;
+        /// <summary>[R28] 开夹具：气缸传感器全部到位后再保持多久（ms），[Machine] FixtureOpenSettle，缺省 300（原 WS.AllCyUp 写死 300）。</summary>
+        public static int FixtureOpenSettleMs { get; private set; } = 300;
+        public const int FixtureOpenSettleMax = 1000;
+
+        /// <summary>[R28] 调试模式“开夹具到位后保持”，写回并立即生效。</summary>
+        public static bool SetFixtureOpenSettle(int settleMs, out string error)
+        {
+            error = null;
+            if (settleMs < 0 || settleMs > FixtureOpenSettleMax)
+            { error = string.Format("开夹具到位后保持 0~{0}ms", FixtureOpenSettleMax); return false; }
+            lock (sync)
+            {
+                Initialize();
+                if (!WriteMachineValues(new Dictionary<string, string> {
+                    { "FixtureOpenSettle", settleMs.ToString(CultureInfo.InvariantCulture) }
+                }, out error)) return false;
+                FixtureOpenSettleMs = settleMs;
+            }
+            return true;
+        }
 
         /// <summary>[R20] 调试模式“取放延时”：取料等真空时间/取料保持时间，写回并立即生效。</summary>
         public static bool SetPickDelays(int vacuumWaitMs, int holdMs, out string error)
@@ -254,6 +274,8 @@ namespace UI
                         ? Math.Max(PickVacuumWaitMin, Math.Min(PickVacuumWaitMax, dly)) : 500;
                     PickHoldMs = int.TryParse(Get(values, "Machine.PickHoldDly"), NumberStyles.Integer, CultureInfo.InvariantCulture, out dly)
                         ? Math.Max(0, Math.Min(PickHoldMax, dly)) : 0;
+                    FixtureOpenSettleMs = int.TryParse(Get(values, "Machine.FixtureOpenSettle"), NumberStyles.Integer, CultureInfo.InvariantCulture, out dly)
+                        ? Math.Max(0, Math.Min(FixtureOpenSettleMax, dly)) : 300;
                     for (int arm = 0; arm < 2; arm++)
                     {
                         string raw = Get(values, "Machine.FlyLowSpeed" + (arm + 1));

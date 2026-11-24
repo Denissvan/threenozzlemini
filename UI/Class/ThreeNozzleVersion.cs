@@ -8,7 +8,7 @@ namespace UI
     /// </summary>
     public static class ThreeNozzleVersion
     {
-        public const string Current = "R25";
+        public const string Current = "R26";
 
         /// <summary>版本 → 提交号与内容。</summary>
         public static readonly string[] Changes =
@@ -38,6 +38,7 @@ namespace UI
             "R23 供料盘让位X改按对臂实际占用(避障同口径)+3mm，并用于定拍/盲取(跨行改定拍时不再按夹具列等对臂)",
             "R24 双臂自定义安全距离下限 50→20mm(两臂可同时在夹具中间相邻两列)",
             "R25 撤销R21(合并起飞Y限速)；双臂自定义安全距离下限20→5mm",
+            "R26 无料空跑也做放料后回检飞拍动作，结果默认OK",
         };
 
         public static string Banner

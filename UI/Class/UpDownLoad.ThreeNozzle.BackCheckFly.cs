@@ -8,11 +8,18 @@ namespace UI
 {
     public partial class UpDownLoad
     {
+        /// <summary>
+        /// [R26] 无料空跑（RUN_EMPTY，Demo）也走放料后回检飞拍的动作（默认开）：轨迹与生产相同，
+        /// 相机按演示处理、结果一律判 OK（ThreeNozzleCheckAfterPlace 在 Demo 下直接通过），不会弹窗、不会取回放 NG。
+        /// 原来 Demo 下完全跳过回检，空跑看不到这段动作、节拍也比生产短。关掉恢复原来跳过。
+        /// </summary>
+        public static bool ThreeNozzleDemoBackCheckEnabled = true;
+
         private bool ThreeNozzleDeferPostPlaceCheck(WS.MdDat md)
         {
             bool barcode = PT_SET.Isaloneset || (PT_SET.BarcodeMode == (int)PT_SET.BAR_SCAN.UP_SCAN &&
                 !NewSysInf.UserParams.bUpWsChkQrCodeOff);
-            return !Demo && !ThreeNozzleHasSpecialMode && ThreeNozzleFlyActive &&
+            return (!Demo || ThreeNozzleDemoBackCheckEnabled) && !ThreeNozzleHasSpecialMode && ThreeNozzleFlyActive &&
                 md != null && string.IsNullOrEmpty(md.ModuleCheckSampleId) && (barcode || PT_SET.bEnVsFB);
         }
 

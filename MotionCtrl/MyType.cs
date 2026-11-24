@@ -1324,7 +1324,7 @@ namespace MotionCtrl
         public static double safepos=0;
 
         public const double DefaultUdSafeDistance = 89.0;
-        public const double MinUdSafeDistance = 20.0;   // [R24] 原 50：两臂相邻列（穴4/穴5）中心只差约 32mm，现场确认不撞，需要设到 25 左右
+        public const double MinUdSafeDistance = 5.0;   // [R24/R25] 原 50：两臂相邻列（穴4/穴5）中心只差约 32mm，现场确认不撞，按实测设置
         public const double MaxUdSafeDistance = 200.0;
         public static bool bCustomUdSafeDistance = false;
         public static bool bSpecialDualArmAvoidance = false;

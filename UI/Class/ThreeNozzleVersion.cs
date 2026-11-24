@@ -8,7 +8,7 @@ namespace UI
     /// </summary>
     public static class ThreeNozzleVersion
     {
-        public const string Current = "R20";
+        public const string Current = "R21";
 
         /// <summary>版本 → 提交号与内容。</summary>
         public static readonly string[] Changes =
@@ -33,6 +33,7 @@ namespace UI
             "R18 撤销R13：吸嘴偏移校正页定位工位不再限制本模块负责的穴",
             "R19 无成品离开夹具不回X=0停到不挡对臂的X；最后一组停车后不再GoZero(R2生效)；料盘飞拍让位按对臂最远穴位+3mm算(修复对臂夹具上方等0.7s)",
             "R20 放料延时可设0(防带起=等放料延时整数，不防带起项真正用于正式运行)；调试模式加取料等真空时间/取料保持",
+            "R21 进夹具X/Y合并起飞时Y限速到标准助跑的速度(合并趟丢帧23%→同先到位)",
         };
 
         public static string Banner

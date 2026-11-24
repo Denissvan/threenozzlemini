@@ -202,8 +202,43 @@ namespace UI
                 if (res != EM_RES.OK) return res;
                 if (mergeX)
                 {
-                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴飞拍[{1}] X 与 Y 同时起飞，从 Y={2:F3} 直接飞（{3}）", disc, what, curY, mergeWhy));
-                    res = MT.ZupMove(ref quit, ref ax_x, x, ref ax_y, endY);
+                    // [R21] 合并时 Y 从当前位置起跑，助跑比标准起点长，触发时已到全速 2500：下相机两张间隔 60mm≈24ms、上相机 50mm≈20ms，
+                    // 接近相机帧率上限。11-20 进夹具合并 190 趟张数不符 44 次(23%)，先到位 70 趟 11 次。
+                    // 现在合并时把 Y 的最高速度限到“从标准起点起跑到第一个触发点时的速度”（加速度不变），触发间隔与先到位时相同。
+                    double vLim = double.NaN;
+                    if (ThreeNozzleMergeSpeedCapEnabled)
+                    {
+                        double ta = ax_y.tacc > 10 ? ax_y.tacc / 1000.0 : ax_y.tacc;
+                        double runUpStd = Math.Abs(firstTrigger - startY);
+                        if (ax_y.spd_work > 0 && ta > 1e-6 && runUpStd > 1)
+                        {
+                            double acc = ax_y.spd_work / ta;
+                            vLim = Math.Sqrt(2 * acc * runUpStd);
+                            if (!(vLim < ax_y.spd_work * 0.98)) vLim = double.NaN;
+                        }
+                    }
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴飞拍[{1}] X 与 Y 同时起飞，从 Y={2:F3} 直接飞（{3}）{4}", disc, what, curY, mergeWhy,
+                        double.IsNaN(vLim) ? "" : string.Format("，[R21] Y 限速 {0:F0}（同标准助跑 {1:F0}mm）", vLim, Math.Abs(firstTrigger - startY))));
+                    if (double.IsNaN(vLim))
+                    {
+                        res = MT.ZupMove(ref quit, ref ax_x, x, ref ax_y, endY);
+                    }
+                    else
+                    {
+                        double k = vLim / ax_y.spd_work;
+                        double taNew = ax_y.tacc * k, tdNew = ax_y.tdec * k;   // 保持加速度不变（按原单位缩放）
+                        EM_RES restore = EM_RES.OK;
+                        try
+                        {
+                            res = ax_y.SetSpeed(Math.Min(ax_y.spd_start, vLim), vLim, Math.Min(ax_y.spd_stop, vLim), taNew, tdNew);
+                            if (res == EM_RES.OK) res = MT.ZupMove(ref quit, ref ax_x, x, ref ax_y, endY);
+                        }
+                        finally
+                        {
+                            restore = ax_y.SetSpeed(ax_y.spd_start, ax_y.spd_work, ax_y.spd_stop, ax_y.tacc, ax_y.tdec);
+                        }
+                        if (res == EM_RES.OK && restore != EM_RES.OK) res = restore;
+                    }
                     if (res != EM_RES.OK) return res;
                     return ThreeNozzleFlyCollect(ref quit, what, ordered);
                 }
@@ -240,6 +275,9 @@ namespace UI
         /// X 同时运动是否来得及：X 走完（按工作速度 + 加减速时间，偏保守）要早于 Y 到第一个上相机触发点（按匀速估，偏保守）至少 0.15s。
         /// 没有上相机触发点时 X 不影响拍照，直接允许。参数读不到时不合并。
         /// </summary>
+        /// <summary>[R21] X/Y 合并起飞时把 Y 限速到标准助跑对应的速度（默认开）。</summary>
+        public static bool ThreeNozzleMergeSpeedCapEnabled = true;
+
         private bool ThreeNozzleFlyCanMergeX(Dictionary<Cam, List<ThreeNozzleFlyShot>> ordered, double x, double curY, bool increasing, out string why)
         {
             List<ThreeNozzleFlyShot> upShots = ordered.Where(kv => kv.Key != dwcam).SelectMany(kv => kv.Value).ToList();

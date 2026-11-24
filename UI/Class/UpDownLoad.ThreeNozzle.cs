@@ -579,13 +579,15 @@ namespace UI
                         else if (ThreeNozzleBlindPickAllowed(out blindWhyNot))
                         {
                             barcode = "";
-                            result = ThreeNozzleBlindTrayPick(ref quit, xt, source, pair.Pockets[slot].st_pos[id].x);
+                            result = ThreeNozzleBlindTrayPick(ref quit, xt, source,
+                                ThreeNozzleTrayArmX(pair.Pockets[slot].st_pos[id].x, source, list_xt[0], "供料盘盲取"));   // [R23]
                         }
                         else
                         {
                             ThreeNozzleNoteBlindPickFallback(blindWhyNot);
                             result = xt.XtCapMovMod(ref quit, out barcode, source.Pos[id], CONST.ModUpFw,
-                                pair.Pockets[slot].st_pos[id].x, XT.EM_XTFLOW.PICKMOD, true, Demo,
+                                ThreeNozzleTrayArmX(pair.Pockets[slot].st_pos[id].x, source, list_xt[0], "供料盘定拍"),   // [R23]
+                                XT.EM_XTFLOW.PICKMOD, true, Demo,
                                 capQrcodePos: PT_SET.bAddCapQrcode ? traybox_fd.tray_cur.list_AddCapQrcodepos[source.idx].Pos[id] : new ST_XYZA());
                         }
                         CtStepLog.SetContext(disc, ctPrev);

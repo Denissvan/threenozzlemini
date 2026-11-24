@@ -73,6 +73,34 @@ namespace UI
             /// 同一逻辑行的穴走一趟飞拍，结果存到 threeNozzleTrayFlyResults。失败只影响“这颗改定拍”，不报错；
         /// 运动失败才返回非 OK。
         /// </summary>
+        /// <summary>
+        /// [R6/R23] 去供料盘取料时臂停的 X：原本取本组夹具列（料盘 X 跟着对准，进夹具 X 不用再走）；
+        /// 对臂占着的 X（避障同一口径：正在走按目标，否则按当前；在夹具区再加 3mm 吸嘴偏移余量）加上本列会超合计上限时，
+        /// 臂收到不挡对臂的位置，由料盘 X 多走补上。料盘 X 超行程或让位后不足 100mm 时照旧（原地等）。
+        /// R23：飞拍、定拍、盲取都用它，并且在真正取料前按此刻对臂占用再算一次。
+        /// （原来只有飞拍用；两穴跨逻辑行改定拍时还是按夹具列 215 走，11-20 等对臂 1.4~6.4s 共 5 次。
+        ///  R19 改成按对臂最远穴位算，对臂停在 -115 时也会让，进夹具多走一次 X，R23 改回按实际占用+3mm。）
+        /// </summary>
+        private double ThreeNozzleTrayArmX(double columnX, Product.Tray.PosInf firstPos, XT camRef, string what)
+        {
+            if (!ThreeNozzleTrayFlyYieldXEnabled || firstPos == null || camRef == null || !FlyFinite(columnX)) return columnX;
+            int other = id == 0 ? 1 : 0;
+            double occupied = MT.DualArmOccupancy(other);
+            double otherExtent = occupied >= 100 ? occupied + ThreeNozzleParkReachMargin : occupied;
+            double allowed = MT.EffectiveDualArmCombinedExtentLimit - otherExtent - 2.0;
+            if (!FlyFinite(allowed) || Math.Abs(columnX) <= allowed || allowed < ThreeNozzleTrayFlyYieldMinX) return columnX;
+            double yieldX = Math.Sign(columnX) * allowed;
+            ST_XYZA probe = camRef.CaliPosAt(firstPos.Pos[id], yieldX, 0);
+            AXIS feedTrayAxis = traybox_fd.ax_x;
+            // CaliPosAt 在料盘 X 会小于 0 时把差额加回臂 X：那样臂还是伸出去，等于没让，照旧等
+            if (feedTrayAxis == null || !FlyFinite(probe.a) || probe.a <= 0.5 || Math.Abs(probe.x - yieldX) >= 0.01 ||
+                probe.a < feedTrayAxis.sln || probe.a > feedTrayAxis.slp) return columnX;
+            VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(
+                "{0} [R6/R23] {1}: 对臂占用 X={2:F3}，本臂夹具列 X={3:F3} 会超合计上限 {4:F3}，臂改在 X={5:F3} 取料（料盘X={6:F3}），不原地等对臂",
+                disc, what, occupied, columnX, MT.EffectiveDualArmCombinedExtentLimit, yieldX, probe.a));
+            return yieldX;
+        }
+
         private EM_RES ThreeNozzleTrayFlyPrepare(ref bool quit, ThreeNozzleRuntimePair pair, int firstSlot,
             List<Product.Tray.PosInf> positions)
         {
@@ -103,34 +131,7 @@ namespace UI
             // 臂在料盘上的 X 原本取本组夹具列（料盘 X 跟着对准），进夹具时 X 不用再走。
             // 对臂此刻正停在它的外侧列（例如模块2 在 -211 换料）时，本臂去 215 会超两臂合计上限，要原地等对臂离开（18 号 22 次，常见 3~7 秒）。
             // 这时把臂 X 收到不挡对臂的位置，由料盘 X 多走一点补上；进夹具时臂再走剩下的几十毫米。料盘 X 超行程则照旧。
-            if (ThreeNozzleTrayFlyYieldXEnabled && positions.Count > 0)
-            {
-                AXIS otherX = id == 0 ? MT.AXIS_UDL2_X : MT.AXIS_UDL1_X;
-                double otherExtent = otherX == null ? 0 : Math.Max(Math.Abs(otherX.fenc_pos), Math.Abs(otherX.fcmd_pos));
-                // [R19] 对臂已在夹具区（|X|≥100）时，它接下来会去本组最外侧的穴、还要加吸嘴偏移，不能只按它此刻的 X 算。
-                // 11-20 13:47:22 按对臂当前 -209.762 让到 158.453，对臂随后去 -211.933 放料，合计 370.385 超上限，对臂在夹具上方等了 0.72s。
-                if (otherExtent >= 100)
-                {
-                    string reachSource;
-                    otherExtent = Math.Max(otherExtent, ThreeNozzleOtherArmReach(out reachSource) + ThreeNozzleParkReachMargin);
-                }
-                double allowed = MT.EffectiveDualArmCombinedExtentLimit - otherExtent - 2.0;
-                if (FlyFinite(allowed) && Math.Abs(wsX) > allowed && allowed >= ThreeNozzleTrayFlyYieldMinX)
-                {
-                    double yieldX = Math.Sign(wsX) * allowed;
-                    ST_XYZA probe = camRef.CaliPosAt(positions[0].Pos[id], yieldX, 0);
-                    AXIS feedTrayAxis = traybox_fd.ax_x;
-                    // CaliPosAt 在料盘 X 会小于 0 时把差额加回臂 X：那样臂还是伸出去，等于没让，照旧等
-                    if (feedTrayAxis != null && FlyFinite(probe.a) && probe.a > 0.5 && Math.Abs(probe.x - yieldX) < 0.01 &&
-                        probe.a >= feedTrayAxis.sln && probe.a <= feedTrayAxis.slp)
-                    {
-                        VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(
-                            "{0} [R6] 供料盘飞拍: 对臂在 X={1:F3}，本臂夹具列 X={2:F3} 会超合计上限 {3:F3}，臂改在 X={4:F3} 取料（料盘X={5:F3}），不原地等对臂",
-                            disc, otherX.fenc_pos, wsX, MT.EffectiveDualArmCombinedExtentLimit, yieldX, probe.a));
-                        wsX = yieldX;
-                    }
-                }
-            }
+            if (positions.Count > 0) wsX = ThreeNozzleTrayArmX(wsX, positions[0], camRef, "供料盘飞拍");
             List<ThreeNozzleTrayFlyInfo> infos = new List<ThreeNozzleTrayFlyInfo>();
             for (int i = 0; i < Math.Min(need, positions.Count); i++)
             {

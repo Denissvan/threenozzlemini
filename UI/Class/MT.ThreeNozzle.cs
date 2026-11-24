@@ -192,6 +192,17 @@ namespace UI
             return x.home_status != AXIS.HOME_STA.OK;
         }
 
+        /// <summary>[R23] 该臂此刻在双臂防撞里“占用”的 X 外伸：已预约（正在走）按 max(当前, 目标)，否则按当前位置。与避障判断同一口径。</summary>
+        public static double DualArmOccupancy(int armId)
+        {
+            if (armId < 0 || armId > 1) return 0;
+            lock (dualArmXReservationLock)
+            {
+                double current = ArmXExtentForSafety(armId);
+                return dualArmXReserved[armId] ? Math.Max(current, Math.Abs(dualArmXReservedTarget[armId])) : current;
+            }
+        }
+
         /// <summary>防撞计算用的另一臂 X 外伸量：单臂调试中未回零的放置臂按 0 处理，其余按实际位置。</summary>
         internal static double ArmXExtentForSafety(int armId)
         {

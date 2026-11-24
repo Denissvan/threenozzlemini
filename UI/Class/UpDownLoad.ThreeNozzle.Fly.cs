@@ -227,6 +227,16 @@ namespace UI
                 res = ThreeNozzleFlyConfigure(what, ordered);
                 if (res != EM_RES.OK) return res;
             }
+            // [R27] X 与目标差 <0.5mm 时原来只飞 Y，X 留着差值到第一次取料再补走（实测补走+等到位约 0.13s，Z 才下）。
+            // 小量 X 与 Y 同时下发，X 几十 ms 就到位，远早于第一个上相机触发点；上相机结果本来就按实际拍照 X 计算。
+            if (skipStart && !ThreeNozzleHardwareConfig.FlyTwoSpeedEnabled && Math.Abs(ax_x.fcmd_pos - x) > 0.005)
+            {
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R27] 三吸嘴飞拍[{1}] 起飞 Y={2:F3}（从当前位置直接飞，X 差 {3:F3}mm 随 Y 一起补到 {4:F3}）",
+                    disc, what, ax_y.fcmd_pos, x - ax_x.fcmd_pos, x));
+                res = MT.ZupMove(ref quit, ref ax_x, x, ref ax_y, endY);
+                if (res != EM_RES.OK) return res;
+                return ThreeNozzleFlyCollect(ref quit, what, ordered);
+            }
             VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴飞拍[{1}] 起飞 Y={2:F3}（{3}）", disc, what, ax_y.fcmd_pos,
                 skipStart ? "从当前位置直接飞" : preConfigure ? "触发已提前配置" : "到起点后配置触发"));
 

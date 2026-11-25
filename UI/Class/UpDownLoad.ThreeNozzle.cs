@@ -535,7 +535,7 @@ namespace UI
                         }
                         else
                         {
-                        result = ThreeNozzleEnsureTray(ref quit, traybox_fd, -1);
+                        result = ThreeNozzleEnsureTray(ref quit, traybox_fd, -1, null, pair.Pockets[slot] ?? pair.Pockets[1 - slot]);
                         if (result != EM_RES.OK) return result;
                         result = ThreeNozzleCheckFeedTrayBarcode(ref quit);
                         if (result == EM_RES.END)
@@ -1819,7 +1819,7 @@ namespace UI
             if (result != EM_RES.OK) return result;
             TrayBox tray = xt.XtMd.res == 0 ? traybox_ok : traybox_ng;
         RetryTray:
-            result = ThreeNozzleEnsureTray(ref quit, tray, xt.XtMd.res);
+            result = ThreeNozzleEnsureTray(ref quit, tray, xt.XtMd.res, xt);
             if (result != EM_RES.OK) return result;
             var positions = tray.IsOkTray ? tray.tray_cur.GetPosList(Product.EM_CM_RES.EMPTY) :
                 tray.tray_cur.GetPosList(Product.EM_CM_RES.EMPTY, xt.XtMd.res);
@@ -1865,7 +1865,7 @@ namespace UI
         // The caller holds picktray/placetray, so two arms cannot start the same
         // change. Tray_Action retains existing sensor checks and manual full-box
         // confirmation. Its finally publishes IsReady only on actual completion.
-        private EM_RES ThreeNozzleEnsureTray(ref bool quit, TrayBox tray, int resultCode)
+        private EM_RES ThreeNozzleEnsureTray(ref bool quit, TrayBox tray, int resultCode, XT unloadXt = null, WS.MdDat feedColumn = null)
         {
             while (!quit)
             {
@@ -1890,7 +1890,9 @@ namespace UI
                     if (guard == EM_RES.RETRY) continue;
                     if (guard != EM_RES.OK) return guard;
                 }
-                EM_RES result = GoZero(ref quit);
+                // [R30] 原来先 GoZero（X 回 0、Y 回安全 Y）再换盘，换完再从 X=0、Y=862 长助跑飞过去；
+                // 改为 Z 抬起、U 回 0 后停到换盘后第一个动作的起点上方等：供料盘=新盘第一组拍照列+短助跑起点，OK/NG 盘=第一个落料位上方。
+                EM_RES result = ThreeNozzleGoTrayChangeWait(ref quit, tray, unloadXt, feedColumn);
                 if (result != EM_RES.OK) return result;
                 result = tray.Tray_Action(Demo);
                 if (result != EM_RES.OK) return result;
@@ -1898,6 +1900,89 @@ namespace UI
                 if (!tray.IsReady || tray.tray_cur == null) return ThreeNozzleError("换盘完成状态无效");
             }
             return EM_RES.QUIT;
+        }
+
+        /// <summary>[R30] 换盘时在第一个动作的起点上方等，不回 X=0。关闭则恢复原来的 GoZero。</summary>
+        public static bool ThreeNozzleTrayChangeWaitEnabled = true;
+
+        private EM_RES ThreeNozzleGoTrayChangeWait(ref bool quit, TrayBox tray, XT unloadXt, WS.MdDat feedColumn)
+        {
+            double x = double.NaN, y = double.NaN;
+            string why = null;
+            if (ThreeNozzleTrayChangeWaitEnabled)
+            {
+                try { ThreeNozzleTrayChangeWaitXY(tray, unloadXt, feedColumn, out x, out y, out why); }
+                catch (Exception ex) { x = y = double.NaN; why = "计算异常：" + ex.Message; }
+            }
+            if (!FlyFinite(x) || !FlyFinite(y))
+            {
+                if (ThreeNozzleTrayChangeWaitEnabled)
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R30] {1}换盘：等待位不可用（{2}），按原来回 X=0 等",
+                        disc, tray == null ? "" : tray.disc, why));
+                return GoZero(ref quit);
+            }
+            VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R30] {1}换盘：不回 X=0，Z 抬起后停在 X={2:F3} Y={3:F3} 等（{4}）",
+                disc, tray.disc, x, y, why));
+            EM_RES r = MT.ZupMove(ref quit, ref ax_x, x, ref ax_y, y, ref ax_u1, 0, ref ax_u2, 0);
+            if (r != EM_RES.OK) return r;
+            return MT.Move(ref quit, ref list_xt[2].ax_u, 0);
+        }
+
+        private bool ThreeNozzleTrayChangeWaitXY(TrayBox tray, XT unloadXt, WS.MdDat feedColumn, out double x, out double y, out string why)
+        {
+            x = y = double.NaN;
+            why = null;
+            if (tray == null || tray.tray_cur == null || tray.tray_cur.list_pos == null || tray.tray_cur.list_pos.Count == 0)
+            { why = "料盘布局未知"; return false; }
+            // 新盘与旧盘是同一产品布局，按旧盘的穴位坐标算新盘第一个位置
+            List<Product.Tray.PosInf> layout = tray.tray_cur.list_pos.Where(p => p != null).OrderBy(p => p.idx).ToList();
+            if (layout.Count == 0) { why = "料盘布局未知"; return false; }
+            string how;
+            if (tray.IsFeedTray)
+            {
+                if (feedColumn == null) { why = "不知道下一组的夹具列"; return false; }
+                XT camRef = list_xt[0];
+                double wsX = feedColumn.st_pos[id].x;
+                ST_XYZA c0 = camRef.CaliPosAt(layout[0].Pos[id], wsX, 0);
+                double minY = c0.y, maxY = c0.y;
+                if (layout.Count > 1 && layout[1].Row == layout[0].Row)
+                {
+                    ST_XYZA c1 = camRef.CaliPosAt(layout[1].Pos[id], wsX, 0);
+                    minY = Math.Min(minY, c1.y);
+                    maxY = Math.Max(maxY, c1.y);
+                }
+                bool increasing = ax_y.fcmd_pos < (minY + maxY) / 2;
+                x = c0.x;
+                y = increasing ? minY - ThreeNozzleTrayMinRunUp - 1.0 : maxY + ThreeNozzleTrayMinRunUp + 1.0;
+                how = string.Format("新盘穴{0}拍照列，短助跑起点", layout[0].idx);
+            }
+            else
+            {
+                XT xt = unloadXt ?? list_xt[0];
+                ST_XYZA pos = xt.CaliPosAt(layout[0].Pos[id], 0, ax_x.fcmd_pos);
+                x = pos.x + xt.st_rol_cap.x - list_xt[0].st_rol_cap.x + xt.st_vs_pos_xtshp.x;
+                y = pos.y + xt.st_cap_pos.y - list_xt[0].st_rol_cap.y + xt.st_vs_pos_xtshp.y;
+                how = string.Format("新盘穴{0}落料位上方", layout[0].idx);
+            }
+            if (!FlyFinite(x) || !FlyFinite(y)) { why = how + "坐标无效"; return false; }
+            // 等的时间长（换盘约 5~7s），X 不能挡住对臂最远会去的位置
+            string source;
+            double reach = ThreeNozzleOtherArmReach(out source) + ThreeNozzleParkReachMargin;
+            double allowed = MT.EffectiveDualArmCombinedExtentLimit - reach - 2.0;
+            if (!FlyFinite(allowed) || allowed < 1)
+            {
+                why = string.Format("对臂最远 {0:F3}（{1}）后本臂可用 X 不足", reach - ThreeNozzleParkReachMargin, source);
+                return false;
+            }
+            if (Math.Abs(x) > allowed)
+            {
+                how += string.Format("，X {0:F3}→{1:F3} 不挡对臂（最远 {2:F3}，{3}）", x, Math.Sign(x) * allowed, reach - ThreeNozzleParkReachMargin, source);
+                x = Math.Sign(x) * allowed;
+            }
+            if ((ax_x.slp > ax_x.sln && (x < ax_x.sln || x > ax_x.slp)) || (ax_y.slp > ax_y.sln && (y < ax_y.sln || y > ax_y.slp)))
+            { why = string.Format("{0} X={1:F3} Y={2:F3} 超出行程", how, x, y); return false; }
+            why = how;
+            return true;
         }
     }
 }

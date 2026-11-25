@@ -8,7 +8,7 @@ namespace UI
     /// </summary>
     public static class ThreeNozzleVersion
     {
-        public const string Current = "R28";
+        public const string Current = "R30";
 
         /// <summary>版本 → 提交号与内容。</summary>
         public static readonly string[] Changes =
@@ -41,6 +41,8 @@ namespace UI
             "R26 无料空跑也做放料后回检飞拍动作，结果默认OK",
             "R27 飞拍从当前位置直接飞时X差<0.5mm也随Y一起补到第一个取料位(修复第一次取料前多补走X约0.13s)",
             "R28 取消模块1先行(谁先准备好谁先拿供料盘)；开夹具到位后保持时间在调试模式开放(原写死300ms)",
+            "R29 撤销R12：工站视觉校正恢复为每个模块校正全部16穴(与双吸嘴一致)",
+            "R30 换盘(供料/OK/NG)不回X=0，停在换盘后第一个动作起点上方等；无料空跑跳过二维码防呆；修复“和上一轮重复”从不生效",
         };
 
         public static string Banner

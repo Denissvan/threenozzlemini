@@ -77,6 +77,17 @@ namespace UI
         public int mpos_idx;
         public int tmr;
         public static bool Demo = false;
+
+        /// <summary>[R30] 二维码防呆“和上一轮重复”：本工站每个 PC 上一轮的有效条码。</summary>
+        private readonly Dictionary<int, List<string>> lastBarcodesByPc = new Dictionary<int, List<string>>();
+
+        private static bool IsValidBarcodeForDupCheck(string code)
+        {
+            if (string.IsNullOrWhiteSpace(code)) return false;
+            string c = code.Trim();
+            return !c.Equals("NULL", StringComparison.OrdinalIgnoreCase) && !c.Equals("No Code", StringComparison.OrdinalIgnoreCase) &&
+                !c.Equals("ErrorCode", StringComparison.OrdinalIgnoreCase);
+        }
         /// <summary>
         /// 无料空跑（WS.Demo）时模拟的测试结果：0=按原逻辑（1-8 穴组 NG 266、9-16 穴组 OK，即一排OK一排NG），
         /// 1=全部 OK，2=全部 NG(266)。只影响空跑，不影响正常生产。调试模式窗口里可切换，默认全部 OK。
@@ -2309,12 +2320,11 @@ namespace UI
                             str_barcode += "0" + "@";
                     }
                   
-                   if( PT_SET.BarcodeMode != (int)PT_SET.BAR_SCAN.NO_SCAN  )
+                   // [R30] 无料空跑没有扫码（条码全为空），不做二维码防呆，避免每个工站上完料都弹“存在重复二维码”
+                   if( PT_SET.BarcodeMode != (int)PT_SET.BAR_SCAN.NO_SCAN && !(demo || Demo) )
                    {
                         #region   二维码防呆
                         List<string> numbers = new List<string>();
-                        List<string> lastnumbers = new List<string>();
-
 
                         numbers.Clear();
                         foreach (MdDat m in list)
@@ -2324,19 +2334,25 @@ namespace UI
                                 numbers.Add(m.bardcode);
                             }
                         }
+                        // [R30] “和上一轮重复”：原来上一轮条码存在局部变量里，每次都是空的，这一项从没生效过；改为按本工站、按 PC 分组记住上一轮。
+                        // 只比有效条码（空/NULL/No Code/ErrorCode 不算）；GRR、点检、模组自动点检本来就重复测同一批料，不比上一轮。
                         bool Err = false;
-                        if (lastnumbers.Count > 0)
+                        List<string> validNow = numbers.Where(IsValidBarcodeForDupCheck).ToList();
+                        int pcKey = list[0].PC_ID;
+                        List<string> lastnumbers;
+                        bool repeatAllowed = PT_SET.bGrrFlow || VAR.gsys_set.isChkMode || VAR.isAutoChkMode ||
+                            UI.ModuleCheck.ModuleCheckHooks.AffectsStation(this);
+                        if (!repeatAllowed && lastBarcodesByPc.TryGetValue(pcKey, out lastnumbers) && lastnumbers.Count > 0 && validNow.Count > 0)
                         {
-                            var differentElements = lastnumbers.Except(numbers).ToList();
+                            var differentElements = lastnumbers.Except(validNow).ToList();
 
                             if (!differentElements.Any())
                             {
                                 Err = true;
+                                VAR.msg.AddMsg(Msg.EM_MSGTYPE.ERR, string.Format("[R30] {0} PC{1} 本轮条码与上一轮完全重复：{2}", disc, pcKey, string.Join(",", lastnumbers)));
                             }
                         }
-
-                        lastnumbers.Clear();
-                        lastnumbers = numbers;
+                        lastBarcodesByPc[pcKey] = validNow;
 
                         var distinctNumbers = numbers.Distinct().ToList();
 

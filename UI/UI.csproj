@@ -448,6 +448,7 @@
     </Compile>
     <Compile Include="Class\ThreeNozzleSequence.cs" />
     <Compile Include="Class\ThreeNozzleCoordinator.cs" />
+    <Compile Include="Class\ThreeNozzleMoveDiag.cs" />
     <Compile Include="Class\ThreeNozzleDryRun.cs" />
     <Compile Include="Class\ThreeNozzleDryRunSim.cs" />
     <Compile Include="Class\SafetyDebugMode.cs" />

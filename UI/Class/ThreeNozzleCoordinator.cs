@@ -357,7 +357,7 @@ namespace UI
             {
                 bool tailDone;
                 lock (Sync) tailDone = unload && tailCompletedFor[armId] == ws;
-                result = unload ? (tailDone ? EM_RES.OK : arm.ThreeNozzleUnload(ref UpDownLoad.bquit, ws))
+                result = unload ? (tailDone ? EM_RES.OK : arm.ThreeNozzleUnload(ref UpDownLoad.bquit, ws, nextFeed != null))
                                 : arm.ThreeNozzlePrefetch(ref UpDownLoad.bquit, ws);
                 if (unload && result == EM_RES.OK) lock (Sync) tailCompletedFor[armId] = ws;
                 // 卸完后仍保持只在料盘区（TrayOnly），接着为下一个需要上料的工站提前取料

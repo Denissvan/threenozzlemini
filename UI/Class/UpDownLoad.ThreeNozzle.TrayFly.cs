@@ -249,7 +249,13 @@ namespace UI
             {
                 Camcfgset(0U);
                 // 臂到起点、料盘 X 到拍照位（一起走）；之后 FlyPass 看到 X 已对齐、Y 在起点，直接配触发起飞
+                // [R32] 诊断：分别记录臂X、臂Y、料盘X 何时开始动、指令何时走完、编码器何时到位，找出“走到起飞点”约 0.5s 卡在哪根轴
+                ThreeNozzleMoveDiag diag = ThreeNozzleMoveDiag.Start(
+                    new ThreeNozzleMoveDiag.Item("臂X", ax_x, camX),
+                    new ThreeNozzleMoveDiag.Item("臂Y", ax_y, startY),
+                    new ThreeNozzleMoveDiag.Item("料盘X", traybox_fd.ax_x, trayX));
                 EM_RES res = MT.ZupMove(ref quit, ref ax_x, camX, ref ax_y, startY, ref traybox_fd.ax_x, trayX);
+                diag.FinishAndLog(disc + " [R32] 供料盘飞拍去起飞点" + what);
                 if (res != EM_RES.OK) return res;
                 traybox_fd.MoveToLastPos[id] = true;
                 res = ThreeNozzleFlyPass(ref quit, what, camX, startY, endY, shots);

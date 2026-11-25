@@ -817,8 +817,15 @@ namespace UI
                 {
                     VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} 三吸嘴: 跳过提前预取（{1}），到位后再预取", disc, skip));
                     if (threeNozzleEarly == null) ThreeNozzleLeadNote(target, -1, 0);   // [R9] 模块1 不提前取这个工站，模块2 不用等它
+                    // [R32] 尾部卸料后没回原点是为了直接预取；不预取了就照原来回原点等
+                    if (threeNozzleTailSkippedHome)
+                    {
+                        threeNozzleTailSkippedHome = false;
+                        return GoZero(ref quit);
+                    }
                     return EM_RES.OK;
                 }
+                threeNozzleTailSkippedHome = false;
                 var watch = Stopwatch.StartNew();
                 ThreeNozzleClearParked();   // [R22]
                 CtStepLog.SetContext(disc, "提前预取待测(" + target.disc + ")");
@@ -1535,7 +1542,11 @@ namespace UI
             return EM_RES.QUIT;
         }
 
-        public EM_RES ThreeNozzleUnload(ref bool quit, WS ws)
+        /// <summary>[R32] 尾部卸料后马上要给下一工站预取时不回原点，从料盘位置直接去飞拍起点。关闭则恢复原来的 GoZero。</summary>
+        public static bool ThreeNozzleTailToFlyEnabled = true;
+        private bool threeNozzleTailSkippedHome;
+
+        public EM_RES ThreeNozzleUnload(ref bool quit, WS ws, bool nextIsPrefetch = false)
         {
             if (!ThreeNozzleAcquireExecutor(ref quit)) return EM_RES.ABORT;
             try
@@ -1555,7 +1566,22 @@ namespace UI
                     if (result != EM_RES.OK) return result;
                     if (pair.Sequence.Current == ThreeNozzleAction.UnloadFinished) pair.Sequence.Step(a => true);
                 }
-                EM_RES home = GoZero(ref quit);
+                // [R32] 原来卸完固定 GoZero（X→0、Y→安全位），接着预取又从 X=0、Y≈856 长助跑飞回供料盘。
+                // 马上要预取、且不需要协调线程统一后检查（要求两臂 X≈0）、不是清料时：只抬 Z、U 回 0，留在原地（R19 停车 X，不挡对臂）。
+                EM_RES home;
+                if (nextIsPrefetch && ThreeNozzleTailToFlyEnabled && !threeNozzleDrain && !VAR.ClearMt && !ThreeNozzleArmNeedsPostChecks(ws))
+                {
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R32] 尾部卸料完成，不回原点：抬 Z 后留在 X={1:F3} Y={2:F3}，直接去下一工站预取飞拍起点",
+                        disc, ax_x.fcmd_pos, ax_y.fcmd_pos));
+                    home = MT.ZupMove(ref quit, ref ax_x, ax_x.fcmd_pos, ref ax_y, ax_y.fcmd_pos, ref ax_u1, 0, ref ax_u2, 0);
+                    if (home == EM_RES.OK) home = MT.Move(ref quit, ref list_xt[2].ax_u, 0);
+                    if (home == EM_RES.OK) threeNozzleTailSkippedHome = true;
+                }
+                else
+                {
+                    home = GoZero(ref quit);
+                    threeNozzleTailSkippedHome = false;
+                }
                 if (home != EM_RES.OK) return home;
                 ThreeNozzleResetModesRuntime();
                 threeNozzleSource = null;

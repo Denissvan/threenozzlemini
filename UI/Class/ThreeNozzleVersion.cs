@@ -8,7 +8,7 @@ namespace UI
     /// </summary>
     public static class ThreeNozzleVersion
     {
-        public const string Current = "R32";
+        public const string Current = "R35";
 
         /// <summary>版本 → 提交号与内容。</summary>
         public static readonly string[] Changes =
@@ -45,6 +45,9 @@ namespace UI
             "R30 换盘(供料/OK/NG)不回X=0，停在换盘后第一个动作起点上方等；无料空跑跳过二维码防呆；修复“和上一轮重复”从不生效",
             "R31 工站配置重新加载时按穴号就地更新原穴位对象(运行中改坐标/高度保存后，当前站剩余穴立即用新值，穴位状态不再断开)",
             "R32 尾部卸料后马上预取时不回原点，直接去飞拍起点；供料盘飞拍去起飞点加分轴耗时诊断",
+            "R33 合夹具到位后保持时间在调试模式开放(原写死400ms)",
+            "R34 无料空跑夹具放料/取料保持也读调试模式取放延时(原空跑写死60ms/不保持)",
+            "R35 转盘MoveToNext后不再重复RecoverPosition；调试模式加“Z抬起放宽到位(进1mm即横移)”开关，缺省关",
         };
 
         public static string Banner

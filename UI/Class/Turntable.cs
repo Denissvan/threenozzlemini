@@ -356,7 +356,7 @@ namespace UI
             else if (sta == EM_STA.POS3) sta = EM_STA.POS0;
             else sta = EM_STA.POS0;
 
-            return MoveToIndex(ref bquit, sta);
+            return MoveToIndex(ref bquit, sta, true);
         }
         public static EM_RES MoveToPre(ref bool bquit)
         {
@@ -373,7 +373,7 @@ namespace UI
             else if (sta == EM_STA.POS3) sta = EM_STA.POS2;
             else sta = EM_STA.POS0;
 
-            return MoveToIndex(ref bquit, sta);
+            return MoveToIndex(ref bquit, sta, true);
         }
         /// <summary>
         /// 定位到指定位置编号
@@ -384,11 +384,19 @@ namespace UI
         /// <returns></returns>
         public static EM_RES MoveToIndex(ref bool bquit, EM_STA pos)
         {
-            using (CtStepLog.Step("转盘", "转盘旋转", "到" + pos))
-                return MoveToIndexCore(ref bquit, pos);
+            return MoveToIndex(ref bquit, pos, false);
         }
 
-        private static EM_RES MoveToIndexCore(ref bool bquit, EM_STA pos)
+        /// <summary>[R35] MoveToNext/MoveToPre 刚做过 RecoverPosition（清输出、读位置），MoveToIndex 里不再重复做一次（实测每次约 0.27s）。</summary>
+        public static bool SkipDuplicateRecover = true;
+
+        private static EM_RES MoveToIndex(ref bool bquit, EM_STA pos, bool justRecovered)
+        {
+            using (CtStepLog.Step("转盘", "转盘旋转", "到" + pos))
+                return MoveToIndexCore(ref bquit, pos, justRecovered);
+        }
+
+        private static EM_RES MoveToIndexCore(ref bool bquit, EM_STA pos, bool justRecovered)
         {
             //check
             if (io_out_fwd == null || io_out_rev == null || io_in_inp == null) return EM_RES.PARA_ERR;
@@ -428,8 +436,11 @@ namespace UI
             EM_RES res = ChkSafe(-1);
             if (res != EM_RES.OK) return res;
 
-            EM_RES recoverRes = RecoverPosition("MoveToIndex");
-            if (recoverRes != EM_RES.OK) return recoverRes;
+            if (!(justRecovered && SkipDuplicateRecover && !NeedRecovery))
+            {
+                EM_RES recoverRes = RecoverPosition("MoveToIndex");
+                if (recoverRes != EM_RES.OK) return recoverRes;
+            }
 
 
 

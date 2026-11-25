@@ -2339,6 +2339,9 @@ namespace MotionCtrl
         double tempDis = 0;
         /// <summary>诊断用：最近一次 WaitForMoveDone 在指令走完后为等编码器到位额外睡了多少 ms（0/10/110/210）。</summary>
         public volatile int LastSettleExtraMs;
+        /// <summary>[R35] Z 抬起放宽到位：开启后，被标记为上下料臂 Z 的轴走到 0 时，编码器进 1mm（与横移前 Z 安全高度判定一致）即算到位，不再等进 0.5mm。</summary>
+        public static volatile bool ZeroTargetLooseSettle = false;
+        public volatile bool IsArmZ;
         /// <summary>
         /// [R16] 运动下发后不再固定 Thread.Sleep(50)：改为确认轴已开始运动（或已走到目标）就返回，最多仍等 50ms。
         /// 原来 X/Y/U 三轴是逐根下发、每根都睡 50ms，Y 晚 X 50ms 起步、U 晚 100ms 起步，短距离平移至少 150ms。
@@ -2380,6 +2383,7 @@ namespace MotionCtrl
             // 超时后仍按原规则 1.3mm 内放行并报警，超出返回 RETRY。快速模式关闭时按原来固定睡眠（但容差不再沿用）。
             bool servo = mt_type == MT_TYPE.SEVER;
             double tight = servo ? pul_per_mm * 0.5 : 60;
+            if (servo && ZeroTargetLooseSettle && IsArmZ && Math.Abs(targetpos) < 1e-6) tight = pul_per_mm * 1.0;   // [R35]
             double loose = servo ? pul_per_mm * 1.3 : 60;
             Func<double> posErr = () => servo ? Math.Abs(targetpos * pul_per_mm - enc_pos) : Math.Abs(targetpos * pul_per_mm - cmd_pos);
             double curDisPos = posErr();

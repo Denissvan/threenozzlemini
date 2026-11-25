@@ -303,6 +303,7 @@ namespace UI
             // 三根 Z 都已经停在安全高度（指令和编码器都在 0）：不再逐根下发“走到 0”的空运动。
             // 每次空运动也要走一遍板卡通讯和联锁检查（实测约 13ms），每个 ZupMove 都会先调这里，
             // 一轮换料要调二三十次，累计约 1s。
+            foreach (AXIS z in GetArmZAxes(armId)) if (z != null) z.IsArmZ = true;   // [R35] 放宽到位只对上下料臂 Z 生效
             if (AreAllArmZSafe(armId) && AreAllArmZCommandedHome(armId)) return EM_RES.OK;
             // Complete every Z on the new card before permitting X/Y on the old card.
             foreach (AXIS axis in GetArmZAxes(armId))

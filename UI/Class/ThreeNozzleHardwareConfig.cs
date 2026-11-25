@@ -57,6 +57,26 @@ namespace UI
         /// <summary>[R28] 开夹具：气缸传感器全部到位后再保持多久（ms），[Machine] FixtureOpenSettle，缺省 300（原 WS.AllCyUp 写死 300）。</summary>
         public static int FixtureOpenSettleMs { get; private set; } = 300;
         public const int FixtureOpenSettleMax = 1000;
+        /// <summary>[R33] 合夹具：气缸到位后、翻转测试位前再保持多久（ms），[Machine] FixtureCloseSettle，缺省 400（原 WS.SetupForTest 写死 400）。</summary>
+        public static int FixtureCloseSettleMs { get; private set; } = 400;
+        public const int FixtureCloseSettleMax = 1000;
+
+        /// <summary>[R33] 调试模式“合夹具到位后保持”，写回并立即生效。</summary>
+        public static bool SetFixtureCloseSettle(int settleMs, out string error)
+        {
+            error = null;
+            if (settleMs < 0 || settleMs > FixtureCloseSettleMax)
+            { error = string.Format("合夹具到位后保持 0~{0}ms", FixtureCloseSettleMax); return false; }
+            lock (sync)
+            {
+                Initialize();
+                if (!WriteMachineValues(new Dictionary<string, string> {
+                    { "FixtureCloseSettle", settleMs.ToString(CultureInfo.InvariantCulture) }
+                }, out error)) return false;
+                FixtureCloseSettleMs = settleMs;
+            }
+            return true;
+        }
 
         /// <summary>[R28] 调试模式“开夹具到位后保持”，写回并立即生效。</summary>
         public static bool SetFixtureOpenSettle(int settleMs, out string error)
@@ -96,6 +116,19 @@ namespace UI
 
         /// <summary>[R16] 运动下发快速起步（不固定等 50ms），[Machine] FastMoveIssue，缺省 true。实际开关在 AXIS.FastMoveIssue。</summary>
         public static bool FastMoveIssueEnabled { get { return AXIS.FastMoveIssue; } }
+
+        /// <summary>[R35] Z 抬起放宽到位（编码器进 1mm 即放行横移），[Machine] ZUpLooseSettle，缺省 false。实际开关在 AXIS.ZeroTargetLooseSettle。</summary>
+        public static bool SetZUpLooseSettle(bool enabled, out string error)
+        {
+            error = null;
+            lock (sync)
+            {
+                Initialize();
+                if (!WriteMachineKey("ZUpLooseSettle", enabled ? "true" : "false", out error)) return false;
+                AXIS.ZeroTargetLooseSettle = enabled;
+            }
+            return true;
+        }
 
         public static bool SetFastMoveIssue(bool enabled, out string error)
         {
@@ -265,6 +298,8 @@ namespace UI
                     BackCheckAlarmEnabled = bool.TryParse(Get(values, "Machine.BackCheckAlarm"), out backAlarm) && backAlarm;
                     bool fastIssue;
                     AXIS.FastMoveIssue = !bool.TryParse(Get(values, "Machine.FastMoveIssue"), out fastIssue) || fastIssue;
+                    bool zLoose;
+                    AXIS.ZeroTargetLooseSettle = bool.TryParse(Get(values, "Machine.ZUpLooseSettle"), out zLoose) && zLoose;
                     int dly;
                     TrayPlaceDelayMs = int.TryParse(Get(values, "Machine.TrayPlaceDly"), NumberStyles.Integer, CultureInfo.InvariantCulture, out dly)
                         ? Math.Max(PlaceDelayMin, Math.Min(PlaceDelayMax, dly)) : 50;
@@ -276,6 +311,8 @@ namespace UI
                         ? Math.Max(0, Math.Min(PickHoldMax, dly)) : 0;
                     FixtureOpenSettleMs = int.TryParse(Get(values, "Machine.FixtureOpenSettle"), NumberStyles.Integer, CultureInfo.InvariantCulture, out dly)
                         ? Math.Max(0, Math.Min(FixtureOpenSettleMax, dly)) : 300;
+                    FixtureCloseSettleMs = int.TryParse(Get(values, "Machine.FixtureCloseSettle"), NumberStyles.Integer, CultureInfo.InvariantCulture, out dly)
+                        ? Math.Max(0, Math.Min(FixtureCloseSettleMax, dly)) : 400;
                     for (int arm = 0; arm < 2; arm++)
                     {
                         string raw = Get(values, "Machine.FlyLowSpeed" + (arm + 1));

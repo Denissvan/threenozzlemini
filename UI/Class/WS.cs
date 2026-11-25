@@ -2194,9 +2194,11 @@ namespace UI
             }
 
             //等待压盖到位
-            if (IfDelay)
-                using (CtStepLog.Step(disc, "关盖后固定延时", "IfDelay 400ms"))
-                    Thread.Sleep(400);
+            // [R33] 原写死 400ms，改为调试模式“合夹具到位后保持”（[Machine] FixtureCloseSettle，缺省 400）
+            int closeSettle = ThreeNozzleHardwareConfig.FixtureCloseSettleMs;
+            if (IfDelay && closeSettle > 0)
+                using (CtStepLog.Step(disc, "关盖后固定延时", "IfDelay " + closeSettle + "ms"))
+                    Thread.Sleep(closeSettle);
 
             //测试位
             VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format(

@@ -1260,7 +1260,8 @@ namespace UI
                 {
                     if (bpick)
                     {
-                         cy_zk.SetOn();                    
+                         cy_zk.SetOn();
+                         if (ThreeNozzleHardwareConfig.PickHoldMs > 0) Thread.Sleep(ThreeNozzleHardwareConfig.PickHoldMs);   // [R34] 空跑也按“取料吸到后保持”停
 
                     }
                     else
@@ -1269,7 +1270,14 @@ namespace UI
 
                         cy_zk.SetOff();
                         gpio_pzk.SetOn();
-                        Thread.Sleep(60);   // 空跑(Demo)分支，保持原值
+                        // [R34] 空跑原来写死 60ms；改为和带料一样读调试模式取放延时（防带起=放料延时+抬1mm+提起延时，否则=不防带起延时），空跑节拍接近带料
+                        if (bPasteUp)
+                        {
+                            Thread.Sleep(Math.Max(0, PT_SET.PlaceDly));
+                            res = MT.Move(ref bquit, ref ax_z, st_pos.z - ZApproachDirection);
+                            Thread.Sleep(Math.Max(0, PT_SET.MovUpDly));
+                        }
+                        else Thread.Sleep(ThreeNozzleHardwareConfig.FixturePlaceDelayMs);
 
                     }
                 }
@@ -1430,7 +1438,7 @@ namespace UI
                 {
                     // 空跑不检查真空：不等真空感应，避免每次取料都报“等待 ON 超时”误导排查
                     res = IsDemo ? cy_zk.SetOn(ref bquit, 0) : cy_zk.SetOn(ref bquit, bcheck ? ThreeNozzleHardwareConfig.PickVacuumWaitMs : 100);   // [R20]
-                    if (res == EM_RES.OK && !IsDemo && ThreeNozzleHardwareConfig.PickHoldMs > 0) Thread.Sleep(ThreeNozzleHardwareConfig.PickHoldMs);
+                    if (res == EM_RES.OK && ThreeNozzleHardwareConfig.PickHoldMs > 0) Thread.Sleep(ThreeNozzleHardwareConfig.PickHoldMs);   // [R34] 空跑也按“取料吸到后保持”停
                     if (res == EM_RES.OK || !DwMov ||(!bcheck && res == EM_RES.TIMEOUT)) break;
                     else if (res == EM_RES.TIMEOUT)
                     {

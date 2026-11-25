@@ -78,6 +78,47 @@ namespace UI
         public int tmr;
         public static bool Demo = false;
 
+        /// <summary>[R31] 本工站各穴位对象（按穴号），重新加载配置时就地更新，保证运行中持有的引用拿到新坐标。</summary>
+        private readonly Dictionary<int, MdDat> liveMdByNum = new Dictionary<int, MdDat>();
+
+        private List<MdDat> ReuseLiveMdObjects(List<MdDat> loaded)
+        {
+            List<MdDat> result = new List<MdDat>(loaded.Count);
+            foreach (MdDat md in loaded)
+            {
+                MdDat live;
+                if (!liveMdByNum.TryGetValue(md.Num, out live) || live == null || Object.ReferenceEquals(live, md))
+                {
+                    liveMdByNum[md.Num] = md;
+                    result.Add(md);
+                    continue;
+                }
+                // 只更新从配置文件读出的字段；结果、条码、点检样品等运行状态保留在原对象上
+                live.Num = md.Num;
+                live.WS_ID = md.WS_ID;
+                live.st_pos = md.st_pos;
+                live.st_pickpos = md.st_pickpos;
+                live.st_jigpos = md.st_jigpos;
+                live.st_CapQrcodePos = md.st_CapQrcodePos;
+                live.jig_ID = md.jig_ID;
+                live.cnt_ok = md.cnt_ok;
+                live.cnt_ng_exposure = md.cnt_ng_exposure;
+                live.cnt_ng_iic = md.cnt_ng_iic;
+                live.cnt_ng_image = md.cnt_ng_image;
+                live.cnt_ng_miss_pix = md.cnt_ng_miss_pix;
+                live.cnt_ng_OS = md.cnt_ng_OS;
+                live.cnt_ng_other = md.cnt_ng_other;
+                live.PC_ID = md.PC_ID;
+                live.TestBox_ID = md.TestBox_ID;
+                live.SN = md.SN;
+                live.PC_IP = md.PC_IP;
+                live.benable = md._benable;
+                if (IsFirst) live.res = -1;
+                result.Add(live);
+            }
+            return result;
+        }
+
         /// <summary>[R30] 二维码防呆“和上一轮重复”：本工站每个 PC 上一轮的有效条码。</summary>
         private readonly Dictionary<int, List<string>> lastBarcodesByPc = new Dictionary<int, List<string>>();
 
@@ -791,6 +832,10 @@ namespace UI
 
             if (list_temp.Count > 0)
             {
+                // [R31] 原来每次加载都生成新的穴位对象整份替换 list_md。运行中停机改坐标/高度后保存（保存会重新加载），
+                // 正在做的这一站换料计划里拿的还是旧对象：剩下的穴仍按旧坐标/高度取放，穴位结果也记在旧对象上、新列表收不到。
+                // 改为按穴号把配置字段写回原来的对象，运行中拿着的对象引用不断开。
+                list_temp = ReuseLiveMdObjects(list_temp);
                 list_md.Clear();
                 list_md = list_temp;
                 SortMdDat();

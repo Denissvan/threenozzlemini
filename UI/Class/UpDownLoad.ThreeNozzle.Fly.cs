@@ -533,10 +533,17 @@ namespace UI
                     if (r == EM_RES.OK) lock (ParkSync) threeNozzleParkedX[id] = columnX;
                     return r;
                 }
-                if (!ThreeNozzleCoordinator.IsWorkerRunning(other))
+                // [R36] 原来只看对臂的“尾卸/预取任务”在不在跑。本臂先换完、先预取停车时，对臂往往还在上一个工站换料
+                // （换料线程在跑、尾卸/预取任务还没开始），这里 200ms 后就悄悄放弃了，本臂停在限位处，
+                // 工站到位后才平移 X 再飞拍（25 号日志 14:00:36、14:35:56、15:03:39、15:21:02 等 7 次）。
+                // 现在对臂换料线程还在跑也继续等它停车；工站一到位（ExchangeStartedFor）照样立即返回。
+                UpDownLoad otherArm = other == 0 ? COM.UDLoad1 : COM.UDLoad2;
+                bool otherBusy = ThreeNozzleCoordinator.IsWorkerRunning(other) || (otherArm != null && otherArm.brun_ud);
+                if (!otherBusy && watch.ElapsedMilliseconds > 200)
                 {
-                    // 对臂没有为这个工站提前预取（任务已结束却没登记停车），它换料开始后可能先去料盘外侧列，不提前走
-                    if (watch.ElapsedMilliseconds > 200) return EM_RES.OK;
+                    VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R36] 对臂没有在换料也没有为{1}预取停车，不提前走到飞拍列，仍停 X={2:F3}",
+                        disc, target.disc, ax_x.fcmd_pos));
+                    return EM_RES.OK;
                 }
                 Thread.Sleep(20);
             }

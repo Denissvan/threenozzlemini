@@ -8,7 +8,7 @@ namespace UI
     /// </summary>
     public static class ThreeNozzleVersion
     {
-        public const string Current = "R35";
+        public const string Current = "R37";
 
         /// <summary>版本 → 提交号与内容。</summary>
         public static readonly string[] Changes =
@@ -48,6 +48,8 @@ namespace UI
             "R33 合夹具到位后保持时间在调试模式开放(原写死400ms)",
             "R34 无料空跑夹具放料/取料保持也读调试模式取放延时(原空跑写死60ms/不保持)",
             "R35 转盘MoveToNext后不再重复RecoverPosition；调试模式加“Z抬起放宽到位(进1mm即横移)”开关，缺省关",
+            "R36 R22提前到飞拍列：对臂还在上一站换料时也等它停车(原200ms就放弃，右模块到位后才平移X)",
+            "R37 已换好料的工站重新上下料(如合夹具超时停机后重启)且本站无需上料时，给下一工站提前预取的料保留在吸嘴上，不退回料盘",
         };
 
         public static string Banner

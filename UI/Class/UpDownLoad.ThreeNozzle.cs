@@ -870,6 +870,17 @@ namespace UI
         {
             ThreeNozzleRuntimePair early = threeNozzleEarly;
             if (early == null) return EM_RES.OK;
+            // [R37] 提前预取的料是给别的工站的（例如合夹具超时停机后，已换好料的工站重新要求上下料），
+            // 而本站计划里根本没有要上料的组：料留在吸嘴上给原工站，不退回料盘再重取。
+            // 原来 24 号 18:24 工站1 下压超时后重启，两臂把给工站4 预取的 4 颗料全部退回料盘（约 4s），随后又重新预取（约 3s）。
+            if (threeNozzleEarlyTarget != null && threeNozzleSource != null && !Object.ReferenceEquals(threeNozzleEarlyTarget, threeNozzleSource) &&
+                !threeNozzleDrain && !ThreeNozzleHasSpecialMode && !ModuleCheckHooks.IsCheckLoading(threeNozzleSource) &&
+                !threeNozzlePairs.Any(p => p != null && p.Incoming != null && (p.Incoming[0] || p.Incoming[1])))
+            {
+                VAR.msg.AddMsg(Msg.EM_MSGTYPE.DBG, string.Format("{0} [R37] 三吸嘴: {1}本站没有要上料的组，吸嘴上给{2}提前预取的料保留，不退回料盘",
+                    disc, threeNozzleSource.disc, threeNozzleEarlyTarget.disc));
+                return EM_RES.OK;
+            }
             ThreeNozzleRuntimePair first = null;
             if (!ThreeNozzleHasSpecialMode && !threeNozzleDrain && threeNozzlePairIndex < threeNozzlePairs.Count &&
                 !ModuleCheckHooks.IsCheckLoading(threeNozzleSource))   // 装样品轮：提前取的普通料一律退回
